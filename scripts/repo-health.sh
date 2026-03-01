@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPOS=("openclaw-config" "openclaw-workspace" "openclaw-skills")
-CANONICAL_KEY_COUNT=7
+CANONICAL_KEY_COUNT=9
 NOW=$(date +%s)
 SEVEN_DAYS=$((7 * 86400))
 
