@@ -13,7 +13,7 @@ Refresh the pinned status summary in **#ops-dashboard** with current system heal
 
 ## Target
 - **Channel:** `1477754431780028598` (#ops-dashboard)
-- **Pinned Message:** `1477754773951352903`
+- **Pinned Message:** `1477772410995343462`
 
 ## Traffic Light Colors
 
@@ -47,7 +47,7 @@ cat /home/node/.openclaw/model-health.json | jq .
   "action": "edit",
   "channel": "discord",
   "channelId": "1477754431780028598",
-  "messageId": "1477754773951352903",
+  "messageId": "1477772410995343462",
   "components": {
     "container": {
       "accentColor": <GREEN_YELLOW_OR_RED>
@@ -107,7 +107,7 @@ _<timestamp>_
 - **Infra on one line** — keys, repos, disk. Only show detail if something's wrong.
 - **Backups on one line** — ages only. Flag if >48h with ⚠️.
 - **Under 1500 chars** — leave room for Discord formatting overhead.
-- **Never delete/recreate** — always edit message `1477754773951352903`.
+- **Never delete/recreate** — always edit message `1477772410995343462`.
 
 ### 6. Log result
 ```bash
