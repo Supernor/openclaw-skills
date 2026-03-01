@@ -1,63 +1,46 @@
 ---
 name: repo-health
-description: Verify all 3 GitHub repos are reachable, check last commit age, and confirm secrets count matches canonical list. Runs nightly and on demand. Invoke with /repo-health.
-version: 1.0.0
+description: Verify all 3 GitHub repos, check ages, secrets count. Runs repo-health.sh script.
+version: 2.0.0
 author: repo-man
 tags: [health, github, monitoring]
 ---
 
 # repo-health
 
-## When It Runs
+## Invoke
+```
+/repo-health
+```
 
-- Nightly cron at 03:00 UTC (after workspace-backup and env-backup)
-- On demand: `/repo-health`
+## Steps
 
-## Checks
-
-### 1. Repo reachability (all 3)
+### 1. Run the script
 ```bash
-for repo in openclaw-config openclaw-workspace openclaw-skills; do
-  gh api repos/NowThatJustMakesSense/$repo --jq '.name + " | pushed: " + .pushed_at + " | private: " + (.private|tostring)'
-  echo "Exit: $?"
-done
+/home/node/.openclaw/scripts/repo-health.sh
 ```
 
-For each repo:
-- EXIT 0 → INFO reachable, log last push timestamp
-- EXIT non-zero → ERROR unreachable, log full stderr
+### 2. Format dashboard
 
-### 2. Last commit age check
-If any repo has no commits in more than 7 days: log WARN "repo <name> has not been updated in X days — backup may not be running"
+Script outputs JSON with repos array, secrets count, local log health.
 
-### 3. GitHub Secrets count
+Format as:
+```
+📊 Repo Health
+  openclaw-config: ✅ reachable, last push: <date> (<N> days ago)
+  openclaw-workspace: ✅ reachable, last push: <date>
+  openclaw-skills: ✅ reachable, last push: <date>
+  GitHub Secrets: ✅ 7/7 match
+  Local log: ✅ <N> lines, <size>
+```
+
+Flag any `stale: true` repos (>7 days since push) with ⚠️.
+
+### 3. Log result
 ```bash
-gh secret list --repo NowThatJustMakesSense/openclaw-config --json name --jq '.[].name' | sort
-```
-Compare against canonical key list (7 keys). Any mismatch → WARN with specifics.
-
-### 4. Local log file health
-```bash
-LOG="/home/node/.openclaw/workspace-spec-github/logs/repo-man.log"
-wc -l "$LOG"
-ls -lh "$LOG"
-```
-Log size and line count. If log doesn't exist: WARN "local log file missing — log-event may not be running correctly"
-
-## Output Summary
-
-Update LAST_RUN.md with:
-```markdown
-## repo-health — [ISO8601]
-| Check | Result |
-|-------|--------|
-| openclaw-config | ✅ reachable, last push: <date> |
-| openclaw-workspace | ✅ reachable, last push: <date> |
-| openclaw-skills | ✅ reachable, last push: <date> |
-| GitHub Secrets | ✅ 7/7 match |
-| Local log | ✅ exists, N lines |
+/home/node/.openclaw/scripts/log-event.sh INFO repo-health "PASS/WARN: summary"
 ```
 
-Discord summary (always send on nightly run):
-- All pass: `[Repo-Man] repo-health ✅ All systems nominal. 3/3 repos reachable. Secrets: 7/7.`
-- Any fail: `[Repo-Man] repo-health ⚠️ Issues found: <summary>. Check LAST_RUN.md on GitHub.`
+## Notes
+- Do NOT re-implement — always use the script
+- Stale repos may mean backup cron isn't running

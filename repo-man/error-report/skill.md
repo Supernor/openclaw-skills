@@ -1,7 +1,7 @@
 ---
 name: error-report
-description: Pull recent errors from the local log and ERRORS.md, format them, and send to Discord. Invoke with /error-report or /error-report <N> for last N entries.
-version: 1.0.0
+description: Pull recent errors from gateway logs and Repo-Man log, format and send to Discord.
+version: 2.0.0
 author: repo-man
 tags: [logging, errors, reporting]
 ---
@@ -9,30 +9,51 @@ tags: [logging, errors, reporting]
 # error-report
 
 ## Invoke
-
 ```
-/error-report          # Last 10 WARN+ entries
+/error-report          # Last 10 WARN+ entries from all sources
 /error-report 25       # Last 25 entries
-/error-report today    # All entries from today (UTC)
+/error-report today    # All entries from today
 ```
 
 ## Steps
 
-### 1. Read from local log
+### 1. Query gateway logs (structured, richest source)
 ```bash
-LOG="/home/node/.openclaw/workspace-spec-github/logs/repo-man.log"
-grep -E '^\[.+\] (WARN|ERROR|FATAL)' "$LOG" | tail -N
+/home/node/.openclaw/scripts/gateway-log-query.sh --errors --summary --limit <N>
 ```
 
-### 2. Also read from GitHub ERRORS.md
+### 2. Query local Repo-Man log
 ```bash
-cat /home/node/.openclaw/workspace-spec-github/openclaw-config/logs/ERRORS.md | head -100
+grep -E '^\[.+\] (WARN|ERROR|FATAL)' /home/node/.openclaw/workspace-spec-github/logs/repo-man.log | tail -<N>
 ```
 
-### 3. Format and send to Discord
+### 3. Check open GitHub incidents
+```bash
+/home/node/.openclaw/scripts/incident-manager.sh list
+```
 
-If no errors found: `[Repo-Man] error-report: No WARN/ERROR/FATAL entries found in requested range. All clear.`
+### 4. Format and send
+
+Combine all sources into a single report:
+```
+📋 Error Report (last <N> entries)
+
+Gateway Errors:
+  [time] LEVEL module — msg
+  ...
+
+Repo-Man Errors:
+  [time] LEVEL skill — msg
+  ...
+
+Open Incidents:
+  #<N>: <title>
+  (or "None")
+```
+
+If no errors found: `[Repo-Man] error-report: All clear. No WARN+ entries found.`
 
 ## Notes
 - This skill does not modify any logs. Read-only.
-- If local log is missing: report that fact as part of the output.
+- Gateway log has the most data — always query it first
+- Use scripts, don't grep docker logs manually
