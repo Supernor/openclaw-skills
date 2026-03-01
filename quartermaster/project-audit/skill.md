@@ -123,7 +123,7 @@ For each agent workspace (`workspace/`, `workspace-relay/`, `workspace-spec-gith
 | Relay | relay | Human-facing: user prefs, Discord reading, button interpretation, ops channel awareness |
 | Captain | main | Routing only: agent roster, keyword→agent mappings, handoff format |
 | Repo-Man | spec-github | Infrastructure: scripts, Discord posting/management, webhooks, channel admin, model health |
-| Quartermaster | spec-projects | Projects: decisions, polls for voting, archival |
+| Scribe | spec-projects | Projects: decisions, polls for voting, archival |
 
 #### 3. Flag mismatches
 
@@ -150,10 +150,10 @@ If a file exists in multiple workspaces, check if a RACP-marked source exists at
 | Captain | 3 | 5,054 | 1 Broad |
 | Relay | 12 | 12,004 | 2 Broad, 1 Misplaced |
 | Repo-Man | 21 | 13,846 | 0 |
-| Quartermaster | 11 | 4,327 | 1 Misplaced |
+| Scribe | 11 | 4,327 | 1 Misplaced |
 
 **Flags:**
-🚫 **Misplaced:** `DISCORD-PLAYBOOK.md` in Quartermaster (2,289 tokens) — QM only needs polls section (~200 tokens)
+🚫 **Misplaced:** `DISCORD-PLAYBOOK.md` in Scribe (2,289 tokens) — QM only needs polls section (~200 tokens)
 ⚠️ **Broad:** `CHANGELOG.md` in Relay (1,804 tokens) — Relay never needs full change history
 📋 **Duplicate:** `CHANGELOG.md` identical in Captain + Relay
 
@@ -167,7 +167,7 @@ If a file exists in multiple workspaces, check if a RACP-marked source exists at
 
 #### 6. Scheduling
 
-Context audit should run monthly (add to Quartermaster's audit schedule) or on-demand after any workspace restructuring.
+Context audit should run monthly (add to Scribe's audit schedule) or on-demand after any workspace restructuring.
 
 ---
 
