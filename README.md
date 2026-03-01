@@ -1,54 +1,63 @@
 # openclaw-skills
 
-Custom skills and hooks for the OpenClaw deployment.
+Custom skills, hooks, and shell scripts for a multi-agent [OpenClaw](https://github.com/openclaw/openclaw) deployment.
+
+## Architecture
+
+This deployment runs 4 specialized agents, each with targeted skills:
+
+| Agent | Role | Skills |
+|-------|------|--------|
+| **Relay** | Human-facing, all user communication | — |
+| **Captain** | Router/dispatcher | model-status, model-clear, model-failover-notify, model-auto-fallback |
+| **Repo-Man** | Infra, backups, GitHub, model health | key-drift, backups, error-report, incident-manager, dashboard, nightly reporting |
+| **Quartermaster** | Projects, decisions, auditing | decide, audit, project, archive, topic |
 
 ## Structure
 
 ```
-captain/        — Skills in the Captain (main) workspace (shared, model health)
-repo-man/       — Skills in the Repo-Man (spec-github) workspace
-quartermaster/  — Skills in the Quartermaster (spec-projects) workspace
-hooks/          — Custom managed hooks (~/.openclaw/hooks/)
+captain/        — Shared workspace skills (model health)
+repo-man/       — Repo-Man skills (ops, backups, Discord reporting)
+quartermaster/  — Quartermaster skills (projects, auditing)
+hooks/          — Custom managed hooks
+scripts/        — Shell scripts (all output JSON)
 ```
 
-## Skills by Agent
+## Shell Scripts
 
-### Captain (shared workspace)
-| Skill | Command | Type |
-|-------|---------|------|
-| model-status | /model-status | user-invocable |
-| model-clear | /model-clear | user-invocable |
-| model-failover-notify | internal | heartbeat |
-| model-auto-fallback | internal | heartbeat |
+14 deterministic shell scripts at `~/.openclaw/scripts/`, all outputting JSON:
 
-### Repo-Man
-| Skill | Command | Type |
-|-------|---------|------|
-| key-drift-check | /key-drift | user-invocable |
-| workspace-backup | /ws-backup | user-invocable |
-| env-backup | /env-backup | user-invocable |
-| repo-health | /repo-health | user-invocable |
-| rotate-key | /rotate | user-invocable |
-| error-report | /error-report | user-invocable |
-| log-decision | /decision | user-invocable |
-| log-event | internal | every operation |
-
-### Quartermaster
-| Skill | Command | Type |
-|-------|---------|------|
-| decide | /decide | user-invocable |
-| decisions | /decisions | user-invocable |
-| pin-decisions | /pin | user-invocable |
-| audit | /audit | user-invocable |
-| project | /project | user-invocable |
-| archive | /archive | user-invocable |
-| topic | /topic | user-invocable |
+| Script | Purpose |
+|--------|---------|
+| `key-drift-check.sh` | Compare env keys vs canonical list |
+| `env-backup.sh` | Generate .env.template, push to GitHub |
+| `ws-backup.sh` | Push workspace MD files to GitHub |
+| `skills-backup.sh` | Push skills + hooks + scripts to GitHub |
+| `repo-health.sh` | Check 3 repos + secrets + logging |
+| `log-event.sh` | Structured logging |
+| `gateway-log-query.sh` | Query gateway JSON logs |
+| `incident-manager.sh` | GitHub Issues for incidents |
+| `config-tag.sh` | Tag config repo for rollback |
+| `log-audit.sh` | Audit all logs: persist, prune, rotate |
+| `racp-split.sh` | Split RACP-marked docs into per-agent versions |
+| `registry.sh` | Query shared registry (IDs, paths, constants) |
+| `context-snapshot.sh` | Generate pre-flight context snapshot |
+| `ops-db.sh` | Query/mutate the ops SQLite database |
 
 ## Hooks
+
 | Hook | Event | Description |
 |------|-------|-------------|
-| model-health-monitor | gateway:startup | Polls auth profiles every 30s, writes health state |
+| `model-health-monitor` | `gateway:startup` | Polls auth profiles every 30s, writes structured health state |
 
-## Maintained By
-- Claude Code (VPS host) — creates/modifies skills and hooks
-- Repo-Man — pushes updates to this repo
+## AI Attribution
+
+All code in this repository was written by **Claude Code** (Anthropic's CLI agent), powered by **Claude Opus 4.6**.
+
+- Human: Robert Supernor — product direction, priorities, review
+- AI: Claude Code — implementation, architecture, shell scripting, TypeScript
+
+Every commit includes:
+```
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+```
