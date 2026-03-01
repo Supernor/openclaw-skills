@@ -7,6 +7,7 @@
 #   ops-db.sh health snapshot                     # Record current provider health
 #   ops-db.sh health latest                       # Latest status per provider
 #   ops-db.sh health history [provider] [--limit N]  # Recent snapshots
+#   ops-db.sh health trends [hours]                  # Analytics: uptime, failures, resolution time
 #
 #   ops-db.sh incident open <title> [--provider X] [--severity X] [--desc "..."]
 #   ops-db.sh incident close <id> [--resolution "..."]
@@ -117,7 +118,74 @@ case "$CMD" in
           sq "SELECT * FROM health_snapshots ORDER BY ts DESC LIMIT $LIMIT;"
         fi
         ;;
-      *) echo '{"error":"Usage: ops-db.sh health <snapshot|latest|history>"}'; exit 1 ;;
+      trends)
+        # Compute health analytics over a time window
+        HOURS="${3:-168}"  # default 7 days
+        CUTOFF=$(date -u -d "$HOURS hours ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        # Total snapshots in window
+        TOTAL=$(sq_exec "SELECT COUNT(*) FROM health_snapshots WHERE ts > '$CUTOFF';")
+
+        # Failures per provider (non-healthy snapshots)
+        FAILURES=$(sq "SELECT provider, COUNT(*) as failures, GROUP_CONCAT(DISTINCT reason) as reasons FROM health_snapshots WHERE ts > '$CUTOFF' AND status != 'healthy' GROUP BY provider ORDER BY failures DESC;" 2>/dev/null)
+        [ -z "$FAILURES" ] && FAILURES="[]"
+
+        # Most recent status per provider
+        CURRENT=$(sq "SELECT * FROM v_latest_health;" 2>/dev/null)
+        [ -z "$CURRENT" ] && CURRENT="[]"
+
+        # Failure rate per provider
+        RATES=$(sq "SELECT provider, COUNT(*) as total, SUM(CASE WHEN status != 'healthy' THEN 1 ELSE 0 END) as unhealthy, ROUND(100.0 * SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END) / COUNT(*), 1) as uptime_pct FROM health_snapshots WHERE ts > '$CUTOFF' GROUP BY provider;" 2>/dev/null)
+        [ -z "$RATES" ] && RATES="[]"
+
+        # Incident stats from incidents table
+        INCIDENT_TOTAL=$(sq_exec "SELECT COUNT(*) FROM incidents WHERE opened_at > '$CUTOFF';")
+        INCIDENT_OPEN=$(sq_exec "SELECT COUNT(*) FROM v_open_incidents;")
+        INCIDENT_AVG_MINS="null"
+        AVG_RAW=$(sq_exec "SELECT ROUND(AVG((julianday(closed_at) - julianday(opened_at)) * 1440), 1) FROM incidents WHERE opened_at > '$CUTOFF' AND closed_at IS NOT NULL;")
+        [ -n "$AVG_RAW" ] && [ "$AVG_RAW" != "" ] && INCIDENT_AVG_MINS="$AVG_RAW"
+
+        # Notification counts
+        NOTIF_FAILURES=$(sq_exec "SELECT COUNT(*) FROM notifications WHERE ts > '$CUTOFF' AND type='failure';")
+        NOTIF_RECOVERIES=$(sq_exec "SELECT COUNT(*) FROM notifications WHERE ts > '$CUTOFF' AND type='recovery';")
+
+        # Most failed provider
+        MOST_FAILED=$(sq_exec "SELECT provider FROM health_snapshots WHERE ts > '$CUTOFF' AND status != 'healthy' GROUP BY provider ORDER BY COUNT(*) DESC LIMIT 1;")
+        [ -z "$MOST_FAILED" ] && MOST_FAILED="none"
+
+        jq -n \
+          --arg window "${HOURS}h" \
+          --arg since "$CUTOFF" \
+          --argjson totalSnapshots "$TOTAL" \
+          --argjson failures "$FAILURES" \
+          --argjson current "$CURRENT" \
+          --argjson uptimeByProvider "$RATES" \
+          --argjson incidentsTotal "$INCIDENT_TOTAL" \
+          --argjson incidentsOpen "$INCIDENT_OPEN" \
+          --arg avgResolutionMins "$INCIDENT_AVG_MINS" \
+          --argjson notifFailures "$NOTIF_FAILURES" \
+          --argjson notifRecoveries "$NOTIF_RECOVERIES" \
+          --arg mostFailed "$MOST_FAILED" \
+          '{
+            window: $window,
+            since: $since,
+            totalSnapshots: $totalSnapshots,
+            currentStatus: $current,
+            failuresByProvider: $failures,
+            uptimeByProvider: $uptimeByProvider,
+            mostFailedProvider: $mostFailed,
+            incidents: {
+              total: $incidentsTotal,
+              open: $incidentsOpen,
+              avgResolutionMins: ($avgResolutionMins | tonumber? // null)
+            },
+            notifications: {
+              failures: $notifFailures,
+              recoveries: $notifRecoveries
+            }
+          }'
+        ;;
+      *) echo '{"error":"Usage: ops-db.sh health <snapshot|latest|history|trends>"}'; exit 1 ;;
     esac
     ;;
 
