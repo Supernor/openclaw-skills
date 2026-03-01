@@ -16,7 +16,7 @@ for repo in "${REPOS[@]}"; do
   if ! $FIRST; then RESULTS+=","; fi
   FIRST=false
 
-  REPO_DATA=$(gh api "repos/NowThatJustMakesSense/$repo" 2>/dev/null || echo '{"error":true}')
+  REPO_DATA=$(gh api "repos/Supernor/$repo" 2>/dev/null || echo '{"error":true}')
   if echo "$REPO_DATA" | jq -e '.error' >/dev/null 2>&1; then
     RESULTS+='{"repo":"'"$repo"'","reachable":false,"status":"ERROR"}'
     ALL_OK=false
@@ -44,7 +44,7 @@ done
 RESULTS+="]"
 
 # Check GitHub secrets count
-SECRETS_COUNT=$(gh secret list --repo NowThatJustMakesSense/openclaw-config --json name 2>/dev/null | jq 'length' 2>/dev/null || echo -1)
+SECRETS_COUNT=$(gh secret list --repo Supernor/openclaw-config --json name 2>/dev/null | jq 'length' 2>/dev/null || echo -1)
 SECRETS_MATCH=$( [ "$SECRETS_COUNT" -eq "$CANONICAL_KEY_COUNT" ] && echo true || echo false )
 if ! $SECRETS_MATCH; then ALL_OK=false; fi
 

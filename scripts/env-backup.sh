@@ -36,7 +36,7 @@ KEY_COUNT=$(echo "$TEMPLATE" | grep -c '^[A-Z]' || echo 0)
 
 # Ensure repo clone exists
 if [ ! -d "$REPO_PATH/.git" ]; then
-  git clone https://github.com/NowThatJustMakesSense/openclaw-config.git "$REPO_PATH" 2>/dev/null
+  git clone https://github.com/Supernor/openclaw-config.git "$REPO_PATH" 2>/dev/null
 fi
 
 # Write template

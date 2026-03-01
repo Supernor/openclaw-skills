@@ -38,9 +38,9 @@ CURSOR_FILE="/home/node/.openclaw/github-feed-cursor.txt"
 
 For each repo:
 ```bash
-gh api repos/NowThatJustMakesSense/<repo>/commits?since=<cursor>&per_page=10
-gh api repos/NowThatJustMakesSense/<repo>/issues?state=all&since=<cursor>&per_page=5
-gh api repos/NowThatJustMakesSense/<repo>/tags?per_page=3
+gh api repos/Supernor/<repo>/commits?since=<cursor>&per_page=10
+gh api repos/Supernor/<repo>/issues?state=all&since=<cursor>&per_page=5
+gh api repos/Supernor/<repo>/tags?per_page=3
 ```
 
 ### 2. Skip if no activity

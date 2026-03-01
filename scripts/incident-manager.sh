@@ -7,7 +7,7 @@
 #   incident-manager.sh check <provider>  — returns open issue number or "none"
 set -euo pipefail
 
-REPO="NowThatJustMakesSense/openclaw-config"
+REPO="Supernor/openclaw-config"
 ACTION="${1:?Usage: incident-manager.sh open|close|list|check [args]}"
 
 case "$ACTION" in

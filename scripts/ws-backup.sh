@@ -7,7 +7,7 @@ REPO_PATH="/home/node/.openclaw/workspace-spec-github/openclaw-workspace"
 STATE_DIR="/home/node/.openclaw"
 
 if [ ! -d "$REPO_PATH/.git" ]; then
-  git clone https://github.com/NowThatJustMakesSense/openclaw-workspace.git "$REPO_PATH" 2>/dev/null
+  git clone https://github.com/Supernor/openclaw-workspace.git "$REPO_PATH" 2>/dev/null
 fi
 
 cd "$REPO_PATH"

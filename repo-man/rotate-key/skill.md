@@ -35,7 +35,7 @@ If verification fails: log FATAL "Key not written correctly to .env", STOP.
 
 ### 3. Update GitHub Secret
 ```bash
-gh secret set <KEYNAME> --body "<new_value>" --repo NowThatJustMakesSense/openclaw-config
+gh secret set <KEYNAME> --body "<new_value>" --repo Supernor/openclaw-config
 ```
 
 ### 4. Restart gateway
