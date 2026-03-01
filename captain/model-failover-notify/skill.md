@@ -11,6 +11,16 @@ tags: [model-health, notifications, internal, components]
 ## Purpose
 Read `model-health-notifications.jsonl` for unread entries and send color-coded alerts with action buttons to **#ops-alerts**.
 
+## Registry
+
+Read channel ID and colors from `~/.openclaw/registry.json`:
+```bash
+CHANNEL=$(jq -r .discord.channels."ops-alerts" ~/.openclaw/registry.json)
+COLOR_RED=$(jq -r .discord.colors.red ~/.openclaw/registry.json)
+COLOR_GREEN=$(jq -r .discord.colors.green ~/.openclaw/registry.json)
+COLOR_YELLOW=$(jq -r .discord.colors.yellow ~/.openclaw/registry.json)
+```
+
 ## Target
 - **Channel:** `1477754571697688627` (#ops-alerts)
 

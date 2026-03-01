@@ -11,6 +11,14 @@ tags: [dashboard, monitoring, internal, components]
 ## Purpose
 Refresh the pinned status summary in **#ops-dashboard** with current system health. Uses color-coded containers for at-a-glance reading.
 
+## Registry
+
+Read channel IDs and pin message ID from `~/.openclaw/registry.json`:
+```bash
+CHANNEL=$(jq -r .discord.channels."ops-dashboard" ~/.openclaw/registry.json)
+PIN_MSG=$(jq -r .discord.pins.dashboard ~/.openclaw/registry.json)
+```
+
 ## Target
 - **Channel:** `1477754431780028598` (#ops-dashboard)
 - **Pinned Message:** `1477772410995343462`

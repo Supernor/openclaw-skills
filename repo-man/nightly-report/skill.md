@@ -11,6 +11,16 @@ tags: [nightly, monitoring, internal, components]
 ## Purpose
 Post the nightly cron results to **#ops-nightly** as human-glanceable summary cards. Raw script output goes in a thread for agent reference.
 
+## Registry
+
+Read channel IDs from `~/.openclaw/registry.json`:
+```bash
+CHANNEL=$(jq -r .discord.channels."ops-nightly" ~/.openclaw/registry.json)
+COLOR_GREEN=$(jq -r .discord.colors.green ~/.openclaw/registry.json)
+COLOR_YELLOW=$(jq -r .discord.colors.yellow ~/.openclaw/registry.json)
+COLOR_RED=$(jq -r .discord.colors.red ~/.openclaw/registry.json)
+```
+
 ## Target
 - **Channel:** `1477754636046831738` (#ops-nightly)
 

@@ -11,6 +11,14 @@ tags: [github, notifications, internal, components]
 ## Purpose
 Post recent GitHub activity across all 3 repos to **#ops-github** as compact, scannable cards.
 
+## Registry
+
+Read channel ID and repo names from `~/.openclaw/registry.json`:
+```bash
+CHANNEL=$(jq -r .discord.channels."ops-github" ~/.openclaw/registry.json)
+OWNER=$(jq -r .github.owner ~/.openclaw/registry.json)
+```
+
 ## Target
 - **Channel:** `1477754638290649209` (#ops-github)
 

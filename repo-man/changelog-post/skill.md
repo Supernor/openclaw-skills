@@ -11,6 +11,14 @@ tags: [changelog, notifications, internal, components]
 ## Purpose
 Post new infrastructure changes to **#ops-changelog** as visually distinct cards.
 
+## Registry
+
+Read channel ID from `~/.openclaw/registry.json`:
+```bash
+CHANNEL=$(jq -r .discord.channels."ops-changelog" ~/.openclaw/registry.json)
+COLOR_BLUE=$(jq -r .discord.colors.blue ~/.openclaw/registry.json)
+```
+
 ## Target
 - **Channel:** `1477754637527290030` (#ops-changelog)
 
