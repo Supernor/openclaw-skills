@@ -44,7 +44,7 @@ Post the decision table to Discord. Since Discord doesn't render markdown tables
 **SAVE-FOR-LATER:**
 5. Voice wake word — need mic hardware first (2026-03-01)
 
-— 5 decisions tracked. Use `/decide` to add, `/audit` to verify.
+— 5 decisions tracked. Use `/decide` to add, `/project-audit` to verify.
 ```
 
 ### 3. Filter (if specified)

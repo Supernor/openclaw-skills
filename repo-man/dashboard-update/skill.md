@@ -1,7 +1,7 @@
 ---
 name: dashboard-update
 description: Update the pinned dashboard message in #ops-dashboard with current system status using color-coded containers. Internal skill for nightly cron.
-version: 2.0.0
+version: 3.0.0
 author: repo-man
 tags: [dashboard, monitoring, internal, components]
 ---
@@ -9,32 +9,20 @@ tags: [dashboard, monitoring, internal, components]
 # dashboard-update
 
 ## Purpose
-Refresh the pinned status summary in **#ops-dashboard** with current system health. Uses color-coded containers for at-a-glance reading.
+Refresh the pinned status summary in **#ops-dashboard** with current system health.
+
+## Template
+Read `~/.openclaw/templates/dashboard-update.txt` for Discord formatting templates and color rules.
 
 ## Registry
-
-Read channel IDs and pin message ID from `~/.openclaw/registry.json`:
 ```bash
-CHANNEL=$(jq -r .discord.channels."ops-dashboard" ~/.openclaw/registry.json)
-PIN_MSG=$(jq -r .discord.pins.dashboard ~/.openclaw/registry.json)
+CHANNEL=$(jq -r '.discord.channels."ops-dashboard"' ~/.openclaw/registry.json)
+PIN_MSG=$(jq -r '.discord.pins.dashboard' ~/.openclaw/registry.json)
 ```
-
-## Target
-- **Channel:** `1477754431780028598` (#ops-dashboard)
-- **Pinned Message:** `1477772410995343462`
-
-## Traffic Light Colors
-
-| Status | Color | Code | When |
-|--------|-------|------|------|
-| Healthy | Green | `5763719` | All checks pass |
-| Warning | Yellow | `16776960` | Non-critical issues (1 provider down, warnings in logs) |
-| Critical | Red | `15548997` | 2+ providers down, backup failures, key drift |
 
 ## Steps
 
 ### 1. Gather data
-
 ```bash
 cat /home/node/.openclaw/model-health.json | jq .
 /home/node/.openclaw/scripts/key-drift-check.sh
@@ -43,81 +31,22 @@ cat /home/node/.openclaw/model-health.json | jq .
 ```
 
 ### 2. Determine overall status
-
 - **Green:** All providers healthy, no key drift, all repos reachable, no log warnings
 - **Yellow:** 1 provider quarantined OR log warnings OR stale backups (>48h)
-- **Red:** 2+ providers quarantined OR key drift detected OR repo unreachable OR backup failure
+- **Red:** 2+ providers quarantined OR key drift OR repo unreachable OR backup failure
 
-### 3. Edit pinned message with container
+### 3. Edit pinned message
+Use the template from `templates/dashboard-update.txt`. Fill placeholders with gathered data. Send as container edit to the pinned message ID from registry.
 
-```json
-{
-  "action": "edit",
-  "channel": "discord",
-  "channelId": "1477754431780028598",
-  "messageId": "1477772410995343462",
-  "components": {
-    "container": {
-      "accentColor": <GREEN_YELLOW_OR_RED>
-    },
-    "text": "<formatted dashboard — see template below>",
-    "blocks": []
-  }
-}
-```
+Traffic light colors: Green `5763719` / Yellow `16776960` / Red `15548997`
 
-### 4. Dashboard template
+### 4. Rules
+- Always edit message — never delete/recreate
+- Under 1500 chars
+- Providers on one line with `·` separator, drop provider prefixes
+- Only expand detail on problem sections
 
-Build the `text` field using this format. Keep it tight — this is the glance view.
-
-**When green:**
-```
-**OpenClaw Dashboard** — ✅ All Systems Healthy
-_<timestamp>_
-
-**Providers** — 4/4 active
-✅ gemini-3-flash · ✅ gemini-3.1-pro · ✅ gpt-5.3-codex · ✅ openrouter/auto
-
-**Infra** — ✅ Keys 7/7 · ✅ Repos 3/3 · ✅ Disk <N>MB
-**Backups** — ws: <age> · env: <age> · skills: <age>
-**Cron** — Last: ✅ <time> · Next: 03:00 UTC
-```
-
-**When yellow:**
-```
-**OpenClaw Dashboard** — ⚠️ 1 Issue
-_<timestamp>_
-
-**Providers** — 3/4 active
-✅ gemini-3-flash · ✅ gemini-3.1-pro · ⚠️ anthropic (billing) · ✅ openrouter/auto
-
-**Infra** — ✅ Keys 7/7 · ✅ Repos 3/3 · ✅ Disk <N>MB
-**Backups** — ws: <age> · env: <age> · skills: <age>
-**Cron** — Last: ✅ <time> · Next: 03:00 UTC
-```
-
-**When red:**
-```
-**OpenClaw Dashboard** — 🚨 <N> Issues
-_<timestamp>_
-
-**Providers** — 2/4 active
-✅ gemini-3-flash · 🚨 gemini-3.1-pro (rate-limit) · 🚨 anthropic (billing) · ✅ openrouter/auto
-
-**Infra** — 🚨 Keys 6/7 (missing: GH_TOKEN) · ✅ Repos 3/3 · ✅ Disk <N>MB
-**Backups** — ws: <age> · env: ⚠️ 3d ago · skills: <age>
-**Cron** — Last: 🚨 FAILED <time> · Next: 03:00 UTC
-```
-
-### 5. Rules
-
-- **Providers on one line** — use `·` as separator, status emoji before each name. Abbreviate model names (drop the `google/` prefix etc).
-- **Infra on one line** — keys, repos, disk. Only show detail if something's wrong.
-- **Backups on one line** — ages only. Flag if >48h with ⚠️.
-- **Under 1500 chars** — leave room for Discord formatting overhead.
-- **Never delete/recreate** — always edit message `1477772410995343462`.
-
-### 6. Log result
+### 5. Log result
 ```bash
 /home/node/.openclaw/scripts/log-event.sh INFO dashboard-update "Updated: <green|yellow|red>"
 ```
