@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# context-snapshot.sh — Generate a pre-flight context snapshot for coding-agent handoff
-# Writes current system state to ~/.openclaw/coding-agent/context/current.json
+# context-snapshot.sh — Generate a pre-flight context snapshot for bridge handoff
+# Writes current system state to ~/.openclaw/bridge/context/current.json
 # Agents call this before escalating to Claude Code — gives full situational awareness
 # with zero token cost on either side.
 #
@@ -9,7 +9,7 @@
 set -eo pipefail
 
 BASE="/home/node/.openclaw"
-OUTDIR="${BASE}/coding-agent/context"
+OUTDIR="${BASE}/bridge/context"
 OUTFILE="${OUTDIR}/current.json"
 mkdir -p "$OUTDIR"
 
