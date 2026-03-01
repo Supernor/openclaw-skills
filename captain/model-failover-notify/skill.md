@@ -1,7 +1,7 @@
 ---
 name: model-failover-notify
-description: Send model health notifications with interactive buttons to #ops-alerts. Internal skill for heartbeat.
-version: 3.0.0
+description: Send model health notifications with color-coded containers and interactive buttons to #ops-alerts. Internal skill for heartbeat.
+version: 4.0.0
 author: repo-man
 tags: [model-health, notifications, internal, components]
 ---
@@ -9,10 +9,10 @@ tags: [model-health, notifications, internal, components]
 # model-failover-notify
 
 ## Purpose
-Read `model-health-notifications.jsonl` for unread entries and send interactive alerts to **#ops-alerts**.
+Read `model-health-notifications.jsonl` for unread entries and send color-coded alerts with action buttons to **#ops-alerts**.
 
-## Target Channel
-**#ops-alerts** — Channel ID: `1477754571697688627`
+## Target
+- **Channel:** `1477754571697688627` (#ops-alerts)
 
 ## Steps
 
@@ -28,7 +28,7 @@ Read lines from `$NOTIF_FILE` starting after the cursor position.
 
 ### 3. For each FAILURE notification
 
-Send to #ops-alerts using **Discord components** (buttons for quick actions):
+Send a **red container** with action buttons:
 
 ```json
 {
@@ -36,7 +36,10 @@ Send to #ops-alerts using **Discord components** (buttons for quick actions):
   "channel": "discord",
   "channelId": "1477754571697688627",
   "components": {
-    "text": "🚨 **Provider Down: <provider>**\nReason: <reason>\nSince: <timestamp>\nAffected profiles: <count>",
+    "container": {
+      "accentColor": 15548997
+    },
+    "text": "🚨 **<provider>** — DOWN\n<reason> · since <relative_time>\nAffected profiles: <count>",
     "reusable": true,
     "blocks": [
       {
@@ -52,10 +55,10 @@ Send to #ops-alerts using **Discord components** (buttons for quick actions):
 }
 ```
 
-**When Robert clicks a button:**
-- **"Clear Quarantine"** → Run `/model-clear <provider>` and confirm in thread
-- **"View Logs"** → Run `gateway-log-query.sh --errors --limit 10` and post results in thread
-- **"Silence 1h"** → Update cursor to skip this provider for 1 hour, confirm in thread
+**Format notes:**
+- Provider name bold and prominent — it's the first thing Robert reads
+- Reason + time on one line, separated by `·`
+- Use relative time ("5m ago", "2h ago") not ISO timestamps
 
 Also run:
 ```bash
@@ -64,11 +67,20 @@ Also run:
 
 ### 4. For each RECOVERY notification
 
-Send plain message (no buttons needed):
-```
-✅ **Provider Recovered: <provider>**
-Down since: <timestamp>
-Duration: <calculated>
+Send a **green container**, no buttons needed:
+
+```json
+{
+  "action": "send",
+  "channel": "discord",
+  "channelId": "1477754571697688627",
+  "components": {
+    "container": {
+      "accentColor": 5763719
+    },
+    "text": "✅ **<provider>** — RECOVERED\nWas down <duration> · reason: <reason>"
+  }
+}
 ```
 
 Also run:
@@ -77,14 +89,20 @@ Also run:
 ```
 
 ### 5. Check fallback chain degradation
-Read `model-health.json`. If 2+ providers are quarantined, send:
+
+Read `model-health.json`. If 2+ providers are quarantined, send a **yellow container** with buttons:
+
 ```json
 {
   "action": "send",
   "channel": "discord",
   "channelId": "1477754571697688627",
   "components": {
-    "text": "⚠️ **Fallback Chain Degraded**\nQuarantined: <list>\nActive: <list>",
+    "container": {
+      "accentColor": 16776960
+    },
+    "text": "⚠️ **Fallback Chain Degraded** — <N>/4 providers down\nQuarantined: <list>\nActive: <list>",
+    "reusable": true,
     "blocks": [
       {
         "type": "actions",
@@ -98,19 +116,26 @@ Read `model-health.json`. If 2+ providers are quarantined, send:
 }
 ```
 
-**When clicked:**
-- **"Clear All"** → Run `/model-clear all`
-- **"View Status"** → Run `/model-status` and post full dashboard in thread
+### 6. Button responses
 
-### 6. Update cursor
+When you receive a button click (message like `Clicked "Clear Quarantine".`):
+
+- **"Clear Quarantine"** → Run `/model-clear <provider>`, confirm in thread
+- **"View Logs"** → Run `gateway-log-query.sh --errors --limit 10`, post in thread
+- **"Silence 1h"** → Update cursor to skip this provider for 1 hour, confirm in thread
+- **"Clear All"** → Run `/model-clear all`, confirm in thread
+- **"View Status"** → Run `/model-status`, post full dashboard in thread
+
+Parse the original alert context from the conversation to determine which provider.
+
+### 7. Update cursor
 Write the current line count to the cursor file.
 
-## Button Response Format
+## Rules
 
-When you receive a button click (message like `Clicked "Clear Quarantine".`), parse the original alert context from the conversation to determine which provider. Then execute the action and reply in the same thread.
-
-## Notes
-- Always send to channel ID `1477754571697688627` (#ops-alerts)
-- Use `reusable: true` on components so buttons stay active
-- Create threads on critical alerts for investigation
-- This runs on heartbeat — keep the polling fast, only format when there are new entries
+- **Red = down, green = recovered, yellow = degraded** — never mix colors
+- **Provider name first and bold** — it's the identifier Robert scans for
+- **Relative times** — "5m ago" not "2026-03-01T20:15:00Z"
+- **One card per event** — don't batch multiple failures into one message
+- **`reusable: true`** on failure/degradation cards so buttons stay active
+- Create threads on critical alerts for investigation context
