@@ -1,34 +1,22 @@
 ---
 name: archive
-description: Archive a completed project channel — move to Archive category, pin final decision board, close open items. Usage: /archive
-version: 1.0.0
+description: Archive a completed project channel — move to Archive category, pin final decision board, close open items, suspend session. Usage: invoked via /plan menu
+version: 2.0.0
 author: relay
 tags: [project, discord, archive, management]
 ---
 
 # archive
 
+Invoked by Relay's /plan menu, not directly by the user.
+
 ## Invoke
 
-```
-/archive                # Archive the current project channel
-/archive force          # Archive without confirmation prompt
-```
+Called internally when Robert selects "Archive" from the /plan project menu.
 
 ## Steps
 
-### 1. Confirmation (unless force)
-
-```
-⚠️ Archiving **#<channel-name>**. This will:
-- Move channel to Archive category
-- Pin the final decision board
-- Mark all UNDECIDED items as DECIDED-NOT-DONE (reason: "project archived")
-
-Type "yes" to confirm or "cancel" to abort.
-```
-
-### 2. Resolve open decisions
+### 1. Resolve open decisions
 
 In `decisions/<channel-name>.md`, change all UNDECIDED entries to:
 ```
@@ -37,28 +25,28 @@ In `decisions/<channel-name>.md`, change all UNDECIDED entries to:
 
 SAVE-FOR-LATER items keep their status (they may be picked up in a future project).
 
-### 3. Pin final decision board
+### 2. Pin final decision board
 
-Run the `/pin` skill to post and pin the final decision board.
+Run the pin-decisions skill to post and pin the final decision board.
 
 Add a footer:
 ```
-🗂️ **Project archived on <YYYY-MM-DD>.** This channel is now read-only.
+Project archived on <YYYY-MM-DD>. Type /plan to reactivate.
 ```
 
-### 4. Move channel to Archive category
+### 3. Move channel to Archive category
 
-Use Discord API to move the channel. Retrieve the `archives` category ID from `/home/node/.openclaw/shared-config.json`.
-```
-PATCH /channels/<channel_id>
-{
-  "parent_id": "<archive_category_id>"
-}
-```
+Use `channel-edit` to set `parentId` to the archives category ID from `/home/node/.openclaw/shared-config.json`.
 
-### 5. Set channel read-only
+### 4. Set channel read-only
 
-Use Discord permission overrides to deny SEND_MESSAGES for @everyone in the archived channel.
+Use `channel-permissions` to deny SEND_MESSAGES for @everyone in the archived channel.
+
+### 5. Close session (DO NOT DELETE)
+
+Close the OpenClaw session for this channel. The session data must be preserved for potential reactivation. Closing means the session stops accepting new messages and won't consume tokens, but the history and context remain on disk.
+
+If the session API supports a close/suspend action, use that. If not, leave the session as-is — the read-only channel permission prevents new messages from arriving anyway.
 
 ### 6. Update project file
 
@@ -67,20 +55,19 @@ In `projects/<channel-name>.md`, set:
 **Status:** Archived (<YYYY-MM-DD>)
 ```
 
-### 7. Confirm
+### 7. Return result
 
 ```
-🗂️ **#<channel-name>** archived.
-- <N> decisions finalized
-- <M> items were UNDECIDED → marked DECIDED-NOT-DONE
-- <K> items SAVE-FOR-LATER (preserved)
-- Channel moved to Archive — <YYYY-MM>
+RESULT: Project #<channel-name> archived
+STATUS: success
+DETAILS: <N> decisions finalized, <M> UNDECIDED marked DECIDED-NOT-DONE, <K> SAVE-FOR-LATER preserved, session closed (data kept)
 ```
 
 ## Rules
 
-- Never delete channels — always archive (history is valuable)
+- Never delete channels — always archive
+- Never delete sessions — always close/suspend
 - Never change DONE or WONT-WORK statuses during archive
 - SAVE-FOR-LATER items are preserved as-is
-- If bot lacks Manage Channels, give Robert manual instructions
-- Log the archive as a decision: `#<next> | Project archived | DONE | — | <date>`
+- If bot lacks Manage Channels, give Robert manual instructions via Relay
+- Log the archive as a decision: `#<next> | Project archived | DONE | <date>`
