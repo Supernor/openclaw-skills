@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # task-manager.sh — Task CRUD for project channels
 # Usage:
-#   task-manager.sh add <channel> <title> [--assign <agent>] [--link <decision#>]
+#   task-manager.sh add <channel> <title> [--assign <agent>] [--link <decision#>] [--verify <criteria>] [--done-when <criteria>]
 #   task-manager.sh done <channel> <id>
 #   task-manager.sh update <channel> <id> <status> [--assign <agent>]
+#   task-manager.sh set-verify <channel> <id> <criteria>
+#   task-manager.sh set-done-when <channel> <id> <criteria>
 #   task-manager.sh list <channel> [--status <todo|in-progress|done|all>]
 #   task-manager.sh get <channel> <id>
 #   task-manager.sh remove <channel> <id>
@@ -18,7 +20,7 @@ mkdir -p "$TASKS_DIR"
 ACTION="${1:-}"
 CHANNEL="${2:-}"
 
-if [ -z "$ACTION" ] || [ -z "$CHANNEL" ] && [ "$ACTION" != "help" ]; then
+if [ -z "$ACTION" ] || ([ -z "$CHANNEL" ] && [ "$ACTION" != "help" ]); then
   echo '{"error":"Usage: task-manager.sh <add|done|update|list|get|remove|summary> <channel> [args]"}' | jq .
   exit 1
 fi
@@ -39,10 +41,14 @@ case "$ACTION" in
     TITLE=""
     ASSIGNEE=""
     LINK=""
+    VERIFY=""
+    DONE_WHEN=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --assign) ASSIGNEE="$2"; shift 2 ;;
         --link) LINK="$2"; shift 2 ;;
+        --verify) VERIFY="$2"; shift 2 ;;
+        --done-when) DONE_WHEN="$2"; shift 2 ;;
         *) TITLE="$TITLE $1"; shift ;;
       esac
     done
@@ -55,7 +61,7 @@ case "$ACTION" in
 
     TMP=$(mktemp)
     NEXT_ID=$(jq '.nextId' "$TASK_FILE")
-    jq --arg t "$TITLE" --arg a "$ASSIGNEE" --arg l "$LINK" --arg now "$NOW" --argjson id "$NEXT_ID" '
+    jq --arg t "$TITLE" --arg a "$ASSIGNEE" --arg l "$LINK" --arg v "$VERIFY" --arg d "$DONE_WHEN" --arg now "$NOW" --argjson id "$NEXT_ID" '
       .nextId = ($id + 1) |
       .tasks += [{
         id: $id,
@@ -63,6 +69,8 @@ case "$ACTION" in
         status: "todo",
         assignee: (if $a == "" then null else $a end),
         linkedDecision: (if $l == "" then null else ($l | tonumber) end),
+        verify: (if $v == "" then null else $v end),
+        doneWhen: (if $d == "" then null else $d end),
         created: $now,
         updated: $now
       }]
@@ -191,8 +199,44 @@ case "$ACTION" in
     }' "$TASK_FILE"
     ;;
 
+  set-verify)
+    init_file
+    TASK_ID="${3:-}"
+    shift 3
+    CRITERIA="$*"
+    [ -z "$TASK_ID" ] || [ -z "$CRITERIA" ] && { echo '{"error":"Usage: task-manager.sh set-verify <channel> <id> <criteria>"}' | jq .; exit 1; }
+
+    EXISTS=$(jq --argjson id "$TASK_ID" '[.tasks[] | select(.id == ($id | tonumber))] | length' "$TASK_FILE")
+    [ "$EXISTS" -eq 0 ] && { echo "{\"error\":\"Task $TASK_ID not found in $CHANNEL\"}" | jq .; exit 1; }
+
+    TMP=$(mktemp)
+    jq --argjson id "$TASK_ID" --arg v "$CRITERIA" --arg now "$NOW" '
+      .tasks = [.tasks[] | if .id == ($id | tonumber) then .verify = $v | .updated = $now else . end]
+    ' "$TASK_FILE" > "$TMP" && mv "$TMP" "$TASK_FILE"
+
+    jq --argjson id "$TASK_ID" '.tasks[] | select(.id == ($id | tonumber))' "$TASK_FILE" | jq '. + {action: "verify_set"}'
+    ;;
+
+  set-done-when)
+    init_file
+    TASK_ID="${3:-}"
+    shift 3
+    CRITERIA="$*"
+    [ -z "$TASK_ID" ] || [ -z "$CRITERIA" ] && { echo '{"error":"Usage: task-manager.sh set-done-when <channel> <id> <criteria>"}' | jq .; exit 1; }
+
+    EXISTS=$(jq --argjson id "$TASK_ID" '[.tasks[] | select(.id == ($id | tonumber))] | length' "$TASK_FILE")
+    [ "$EXISTS" -eq 0 ] && { echo "{\"error\":\"Task $TASK_ID not found in $CHANNEL\"}" | jq .; exit 1; }
+
+    TMP=$(mktemp)
+    jq --argjson id "$TASK_ID" --arg d "$CRITERIA" --arg now "$NOW" '
+      .tasks = [.tasks[] | if .id == ($id | tonumber) then .doneWhen = $d | .updated = $now else . end]
+    ' "$TASK_FILE" > "$TMP" && mv "$TMP" "$TASK_FILE"
+
+    jq --argjson id "$TASK_ID" '.tasks[] | select(.id == ($id | tonumber))' "$TASK_FILE" | jq '. + {action: "done_when_set"}'
+    ;;
+
   *)
-    echo '{"error":"Unknown action","usage":"task-manager.sh <add|done|update|list|get|remove|summary> <channel> [args]"}' | jq .
+    echo '{"error":"Unknown action","usage":"task-manager.sh <add|done|update|list|get|remove|set-verify|set-done-when|summary> <channel> [args]"}' | jq .
     exit 1
     ;;
 esac

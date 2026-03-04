@@ -19,8 +19,18 @@ set -eo pipefail
 SOURCE="${1:?Usage: racp-split.sh <source-file> <output-dir>}"
 OUTDIR="${2:?Usage: racp-split.sh <source-file> <output-dir>}"
 
-AGENTS=("relay" "main" "spec-github" "spec-projects")
-AGENT_NAMES='{"relay":"Relay","main":"Captain","spec-github":"Repo-Man","spec-projects":"Quartermaster"}'
+# Dynamic agent discovery from roster (built by skill-router.sh build)
+BASE="/home/node/.openclaw"
+[ ! -d "$BASE" ] && [ -d "/root/.openclaw" ] && BASE="/root/.openclaw"
+ROSTER="$BASE/agent-roster.json"
+
+if [ -f "$ROSTER" ]; then
+  mapfile -t AGENTS < <(jq -r '.[].id' "$ROSTER")
+  AGENT_NAMES=$(jq -c 'map({(.id): .name}) | add' "$ROSTER")
+else
+  echo '{"error":"agent-roster.json not found. Run: skill-router.sh build-roster"}' >&2
+  exit 1
+fi
 
 if [ ! -f "$SOURCE" ]; then
   echo "{\"error\":\"Source file not found: $SOURCE\"}"

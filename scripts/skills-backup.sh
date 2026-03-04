@@ -15,35 +15,45 @@ git pull -q origin main 2>/dev/null || true
 
 COPIED=0
 
-# Captain workspace skills
-if [ -d "$STATE_DIR/workspace/skills" ]; then
-  for skill_dir in "$STATE_DIR/workspace/skills"/*/; do
-    [ -d "$skill_dir" ] || continue
-    SKILL_NAME=$(basename "$skill_dir")
-    mkdir -p "$REPO_PATH/captain/$SKILL_NAME"
-    cp "$skill_dir"* "$REPO_PATH/captain/$SKILL_NAME/" 2>/dev/null && ((COPIED++)) || true
-  done
-fi
+# Dynamic discovery: backs up skills from ALL workspace* directories
+# Agent display name comes from agent-roster.json (built by skill-router)
+ROSTER="$STATE_DIR/agent-roster.json"
 
-# Repo-Man skills
-if [ -d "$STATE_DIR/workspace-spec-github/skills" ]; then
-  for skill_dir in "$STATE_DIR/workspace-spec-github/skills"/*/; do
-    [ -d "$skill_dir" ] || continue
-    SKILL_NAME=$(basename "$skill_dir")
-    mkdir -p "$REPO_PATH/repo-man/$SKILL_NAME"
-    cp "$skill_dir"* "$REPO_PATH/repo-man/$SKILL_NAME/" 2>/dev/null && ((COPIED++)) || true
-  done
-fi
+workspace_to_agent() {
+  local ws="$1"
+  case "$ws" in
+    workspace|workspace-main) echo "main" ;;
+    workspace-*) echo "$ws" | sed 's/^workspace-//' ;;
+    *) echo "$ws" ;;
+  esac
+}
 
-# Quartermaster skills
-if [ -d "$STATE_DIR/workspace-spec-projects/skills" ]; then
-  for skill_dir in "$STATE_DIR/workspace-spec-projects/skills"/*/; do
+agent_display_name() {
+  local agent_id="$1"
+  if [ -f "$ROSTER" ]; then
+    local name
+    name=$(jq -r --arg id "$agent_id" '.[] | select(.id == $id) | .name' "$ROSTER" 2>/dev/null)
+    if [ -n "$name" ] && [ "$name" != "null" ]; then
+      echo "$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-'
+      return
+    fi
+  fi
+  echo "$agent_id"
+}
+
+for ws_skills in "$STATE_DIR"/workspace*/skills; do
+  [ -d "$ws_skills" ] || continue
+  WS_DIR=$(basename "$(dirname "$ws_skills")")
+  AGENT_ID=$(workspace_to_agent "$WS_DIR")
+  DISPLAY_NAME=$(agent_display_name "$AGENT_ID")
+
+  for skill_dir in "$ws_skills"/*/; do
     [ -d "$skill_dir" ] || continue
     SKILL_NAME=$(basename "$skill_dir")
-    mkdir -p "$REPO_PATH/quartermaster/$SKILL_NAME"
-    cp "$skill_dir"* "$REPO_PATH/quartermaster/$SKILL_NAME/" 2>/dev/null && ((COPIED++)) || true
+    mkdir -p "$REPO_PATH/$DISPLAY_NAME/$SKILL_NAME"
+    cp "$skill_dir"* "$REPO_PATH/$DISPLAY_NAME/$SKILL_NAME/" 2>/dev/null && ((COPIED++)) || true
   done
-fi
+done
 
 # Hooks
 if [ -d "$STATE_DIR/hooks" ]; then

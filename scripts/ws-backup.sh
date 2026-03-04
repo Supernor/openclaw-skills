@@ -14,18 +14,12 @@ cd "$REPO_PATH"
 git pull -q origin main 2>/dev/null || true
 
 # Copy workspace files — all agents, MD only, skip skills (separate repo)
-WORKSPACES=(
-  "workspace:workspace"
-  "workspace-relay:workspace-relay"
-  "workspace-spec-github:workspace-spec-github"
-  "workspace-spec-projects:workspace-spec-projects"
-)
-
+# Dynamic discovery: backs up any workspace* directory automatically
 COPIED=0
-for mapping in "${WORKSPACES[@]}"; do
-  SRC_DIR="${mapping%%:*}"
-  DEST_DIR="${mapping##*:}"
-  SRC_PATH="$STATE_DIR/$SRC_DIR"
+for SRC_PATH in "$STATE_DIR"/workspace*/; do
+  [ -d "$SRC_PATH" ] || continue
+  SRC_DIR=$(basename "$SRC_PATH")
+  DEST_DIR="$SRC_DIR"
 
   if [ -d "$SRC_PATH" ]; then
     mkdir -p "$REPO_PATH/$DEST_DIR"

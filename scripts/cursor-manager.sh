@@ -11,19 +11,20 @@ BASE="/home/node/.openclaw"
 ACTION="${1:-}"
 NAME="${2:-}"
 
-# Known cursor files
-declare -A CURSORS=(
-  [github-feed]="$BASE/github-feed-cursor.txt"
-  [upstream-feed]="$BASE/upstream-feed-cursor.txt"
-  [changelog-post]="$BASE/changelog-post-cursor.txt"
-  [model-health-notify]="$BASE/model-health-notify-cursor.txt"
-)
+# Dynamic cursor discovery — any *-cursor.txt file in BASE
+declare -A CURSORS=()
+for cfile in "$BASE"/*-cursor.txt; do
+  [ -f "$cfile" ] || continue
+  cname=$(basename "$cfile" | sed 's/-cursor\.txt$//')
+  CURSORS[$cname]="$cfile"
+done
 
 resolve_path() {
   local name="$1"
   if [ -n "${CURSORS[$name]:-}" ]; then
     echo "${CURSORS[$name]}"
   else
+    # Unknown cursor — create path on demand
     echo "$BASE/${name}-cursor.txt"
   fi
 }
@@ -79,7 +80,7 @@ case "$ACTION" in
     echo "$RESULT" | jq 'sort_by(.name)'
     ;;
   *)
-    echo '{"error":"Usage: cursor-manager.sh <read|write|reset|list> [name]","cursors":["github-feed","upstream-feed","changelog-post","model-health-notify"]}' | jq .
+    echo '{"error":"Usage: cursor-manager.sh <read|write|reset|list> [name]","note":"run list to see all cursors"}' | jq .
     exit 1
     ;;
 esac

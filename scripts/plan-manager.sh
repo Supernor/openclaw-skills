@@ -52,7 +52,7 @@ plan_file() {
   fi
   # Try prefix match
   local matches
-  matches=$(find "$PLANS_DIR" -name "${id}*.json" 2>/dev/null | head -2)
+  matches=$(find "$PLANS_DIR" -maxdepth 1 -name "${id}*.json" 2>/dev/null | head -2)
   local count
   count=$(echo "$matches" | grep -c . 2>/dev/null || echo 0)
   if [ "$count" -eq 1 ] && [ -n "$matches" ]; then
@@ -91,6 +91,8 @@ case "$ACTION" in
     TITLE=$(echo "$TITLE" | sed 's/^ //')
 
     [ -z "$TITLE" ] && err "Title required"
+    # Reject titles that look like flags (prevents garbage plans from --help etc.)
+    [[ "$TITLE" == -* ]] && err "Title cannot start with '-'"
     [ -z "$AGENT" ] && AGENT="spec-projects"
 
     PLAN_ID=$(gen_id "$TITLE")
@@ -400,13 +402,14 @@ case "$ACTION" in
 
     FILE=$(plan_file "$PLAN_ID")
     STATUS=$(jq -r '.status' "$FILE")
-    [ "$STATUS" != "executing" ] && err "Plan must be executing to complete (current: $STATUS)"
+    [ "$STATUS" != "executing" ] && [ "$STATUS" != "gate" ] && err "Plan must be executing or at gate to complete (current: $STATUS)"
 
     TMP=$(mktemp)
     jq --arg now "$NOW" '
       .status = "complete" |
       .completed = $now |
       .updated = $now |
+      .gatePhaseId = null |
       .phases = [.phases[] | if .status != "done" then .status = "done" else . end]
     ' "$FILE" > "$TMP" && mv "$TMP" "$FILE"
 
@@ -735,6 +738,19 @@ case "$ACTION" in
     ' "$FILE" > "$TMP" && mv "$TMP" "$FILE"
 
     echo "{\"action\":\"step_activated\",\"stepId\":$STEP_ID}" | jq .
+    ;;
+
+  continue)
+    # Alias for advance from gate state — matches the "Continue" button custom_id
+    PLAN_ID="${2:-}"
+    [ -z "$PLAN_ID" ] && err "Usage: plan-manager.sh continue <plan-id>"
+
+    FILE=$(plan_file "$PLAN_ID")
+    STATUS=$(jq -r '.status' "$FILE")
+    [ "$STATUS" != "gate" ] && err "Continue is only valid from gate state (current: $STATUS). Use 'advance' from executing."
+
+    # Delegate to advance logic
+    exec "$0" advance "$PLAN_ID"
     ;;
 
   *)

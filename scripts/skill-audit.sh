@@ -11,11 +11,11 @@ BASE="/home/node/.openclaw"
 VERBOSE=false
 [ "${1:-}" = "--verbose" ] && VERBOSE=true
 
-SKILLS_DIRS=(
-  "${BASE}/workspace/skills"
-  "${BASE}/workspace-spec-github/skills"
-  "${BASE}/workspace-spec-projects/skills"
-)
+# Dynamic discovery — matches skill-router.sh pattern (no hardcoding)
+SKILLS_DIRS=()
+for d in "${BASE}"/workspace*/skills; do
+  [ -d "$d" ] && SKILLS_DIRS+=("$d")
+done
 
 TOTAL_SKILLS=0
 TOTAL_DEPS=0
