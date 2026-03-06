@@ -93,8 +93,17 @@ JQEOF
 
       NAME=$(echo "$FRONT" | grep '^name:' | head -1 | sed 's/^name: *//' || true)
       DESC=$(echo "$FRONT" | grep '^description:' | head -1 | sed 's/^description: *//' || true)
-      TAGS=$(echo "$FRONT" | grep '^tags:' | head -1 | sed 's/^tags: *\[//;s/\].*//;s/, */,/g' || true)
       VERSION=$(echo "$FRONT" | grep '^version:' | head -1 | sed 's/^version: *//' || true)
+
+      # Extract tags — handle both inline [a, b] and multi-line "- a" YAML formats
+      TAGS_LINE=$(echo "$FRONT" | grep '^tags:' | head -1 || true)
+      if echo "$TAGS_LINE" | grep -q '\['; then
+        # Inline format: tags: [a, b, c]
+        TAGS=$(echo "$TAGS_LINE" | sed 's/^tags: *\[//;s/\].*//;s/, */,/g')
+      else
+        # Multi-line format: tags:\n  - a\n  - b
+        TAGS=$(echo "$FRONT" | sed -n '/^tags:/,/^[^ -]/p' | grep '^ *- ' | sed 's/^ *- *//;s/ *$//' | tr '\n' ',' | sed 's/,$//')
+      fi
 
       # Check if user-invocable
       INVOCABLE="false"
@@ -102,10 +111,13 @@ JQEOF
         INVOCABLE="true"
       fi
 
-      # Build keywords from tags + skill name parts
+      # Build keywords from tags + skill name parts + description words
       KEYWORDS="$TAGS"
       NAME_WORDS=$(echo "$SKILL_NAME" | tr '-' ',')
       KEYWORDS="${KEYWORDS},${NAME_WORDS}"
+      # Add significant words from description (4+ chars, deduplicated)
+      DESC_WORDS=$(echo "$DESC" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | awk 'length >= 4' | sort -u | tr '\n' ',' | sed 's/,$//')
+      KEYWORDS="${KEYWORDS},${DESC_WORDS}"
 
       # Append skill to temp file using filter file (avoids shell escaping issues)
       jq -f "$JQ_FILTER" \

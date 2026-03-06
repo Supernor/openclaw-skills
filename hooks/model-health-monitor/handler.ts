@@ -3,10 +3,12 @@
  *
  * Polls auth-profile usageStats across all agents every 30s.
  * Writes model-health.json (atomic) and appends to model-health-notifications.jsonl.
+ * Also polls provider usage windows (token limits) for providers that support it.
  */
 
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -50,6 +52,20 @@ interface ProviderHealth {
   profiles: Record<string, ProfileHealthInfo>;
 }
 
+interface UsageWindow {
+  label: string;
+  usedPercent: number;
+  resetAt?: number;
+}
+
+interface ProviderUsageSnapshot {
+  provider: string;
+  displayName: string;
+  windows: UsageWindow[];
+  plan?: string;
+  error?: string;
+}
+
 interface ModelHealthState {
   version: 1;
   lastChecked: string;
@@ -57,6 +73,10 @@ interface ModelHealthState {
   fallbackChain: {
     configured: string[];
     quarantined: string[];
+  };
+  usage?: {
+    lastFetched: string;
+    providers: ProviderUsageSnapshot[];
   };
 }
 
@@ -270,14 +290,85 @@ function buildProviderHealth(
   return providers;
 }
 
-function getConfiguredFallbackChain(): string[] {
-  // Read from the config context if available, otherwise hardcode current
-  return [
-    "google/gemini-3-flash-preview",
-    "google/gemini-3.1-pro-preview",
-    "openai-codex/gpt-5.3-codex",
-    "openrouter/auto",
-  ];
+// --- Usage window fetching ---
+
+async function fetchProviderUsage(stateDir: string): Promise<ProviderUsageSnapshot[]> {
+  try {
+    // Use openclaw CLI to get structured usage data from supported providers
+    const raw = execSync("openclaw models status --all-agents 2>/dev/null || openclaw models status 2>/dev/null", {
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+
+    const snapshots: ProviderUsageSnapshot[] = [];
+
+    // Parse "openai-codex usage: 5h 75% left ⏱1h 42m · Week 93% left ⏱6d 20h" lines
+    const usageRegex = /^-\s+([\w-]+)\s+usage:\s+(.+)$/gm;
+    let match;
+    while ((match = usageRegex.exec(raw)) !== null) {
+      const provider = match[1];
+      const usageStr = match[2];
+      const windows: UsageWindow[] = [];
+
+      // Parse individual windows like "5h 75% left ⏱1h 42m" or "Week 93% left ⏱6d 20h"
+      const windowRegex = /([\w]+)\s+(\d+(?:\.\d+)?)%\s+left(?:\s+⏱([\w\s]+))?/g;
+      let wMatch;
+      while ((wMatch = windowRegex.exec(usageStr)) !== null) {
+        const label = wMatch[1];
+        const usedPercent = 100 - parseFloat(wMatch[2]);
+        windows.push({ label, usedPercent });
+      }
+
+      if (windows.length > 0) {
+        snapshots.push({ provider, displayName: provider, windows });
+      }
+    }
+
+    // Also check for status line format: "openai-codex:default ok expires in 6d"
+    // and error lines: "openai-codex:default error: ..."
+    const profileRegex = /^\s+-([\w-]+):default\s+(ok|error|cooldown|disabled)(.*)$/gm;
+    while ((match = profileRegex.exec(raw)) !== null) {
+      const provider = match[1];
+      const status = match[2];
+      const detail = match[3].trim();
+      const existing = snapshots.find(s => s.provider === provider);
+      if (existing) {
+        if (status !== "ok") {
+          existing.error = `${status}: ${detail}`;
+        }
+      } else if (status !== "ok") {
+        snapshots.push({ provider, displayName: provider, windows: [], error: `${status}: ${detail}` });
+      }
+    }
+
+    return snapshots;
+  } catch (err) {
+    log("warn", `Usage fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
+
+function getConfiguredFallbackChain(stateDir: string): string[] {
+  // Source of truth: openclaw.json
+  try {
+    const configPath = path.join(stateDir, "openclaw.json");
+    const raw = fs.readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw);
+
+    const defaultsFallbacks = config?.agents?.defaults?.model?.fallbacks;
+    if (Array.isArray(defaultsFallbacks) && defaultsFallbacks.length > 0) {
+      return defaultsFallbacks.filter((m: unknown): m is string => typeof m === "string" && m.length > 0);
+    }
+
+    const firstAgentFallbacks = config?.agents?.list?.[0]?.model?.fallbacks;
+    if (Array.isArray(firstAgentFallbacks) && firstAgentFallbacks.length > 0) {
+      return firstAgentFallbacks.filter((m: unknown): m is string => typeof m === "string" && m.length > 0);
+    }
+  } catch (err) {
+    log("warn", `Could not read fallback chain from openclaw.json: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return [];
 }
 
 function getQuarantinedFromProviders(
@@ -303,9 +394,12 @@ async function pollHealthCheck(stateDir: string): Promise<void> {
     }
 
     const providers = buildProviderHealth(allStores);
-    const chain = getConfiguredFallbackChain();
+    const chain = getConfiguredFallbackChain(stateDir);
     const quarantined = getQuarantinedFromProviders(providers, chain);
     const now = new Date().toISOString();
+
+    // Fetch live provider usage windows (token limits, % remaining) — best effort
+    const usageSnapshots = await fetchProviderUsage(stateDir);
 
     const healthState: ModelHealthState = {
       version: 1,
@@ -314,6 +408,10 @@ async function pollHealthCheck(stateDir: string): Promise<void> {
       fallbackChain: {
         configured: chain,
         quarantined,
+      },
+      usage: {
+        lastFetched: now,
+        providers: usageSnapshots,
       },
     };
 
