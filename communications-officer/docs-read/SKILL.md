@@ -8,7 +8,8 @@ tags: [docs, document, read, content, google-docs]
 When reading the content of a Google Doc for processing or summarization.
 ## Execution
 1. Parse: doc ID (from URL or direct ID)
-2. Run: `gog docs get <doc-id>`
+2. Run: `gog docs cat <doc-id> --account relay.supernor@gmail.com`
+   - For metadata: `gog docs info <doc-id> --account relay.supernor@gmail.com`
 3. Return document content
 ## Account Routing
 - Route through correct Google account based on initiating agent/human

@@ -366,9 +366,49 @@ SCORE_REASONS["system_workforce"]="Overloaded agents reduce score"
 SCORES["system_equal_respect"]=8
 SCORE_REASONS["system_equal_respect"]="All 10 agents + system scored by same metrics"
 
-# 17. INTENT ENDURES: Are the 17 intents documented?
+# 17. INTENT ENDURES: Are the intents documented?
 SCORES["system_intent_endures"]=9
-SCORE_REASONS["system_intent_endures"]="17 intents locked in agent-satisfaction-design.md"
+SCORE_REASONS["system_intent_endures"]="18 intents locked in agent-satisfaction-design.md"
+
+# 18. INFORMED: Is the shared memory sharp, helpful, protective, prepared?
+# Measures Chartroom quality as experienced by all agents.
+# A sharp memory lifts every agent. A dull memory sinks them all.
+# Signals: vector coverage (can entries be found?), actionability, coverage, freshness.
+informed_score=5
+informed_reasons=""
+
+# Signal 1: Total chartroom size — more knowledge = better prepared
+total_entries=$(chart list 300 2>/dev/null | tail -1 | grep -oP '\d+' || echo "0")
+if [ "$total_entries" -ge 200 ]; then
+  informed_score=$((informed_score + 3))
+elif [ "$total_entries" -ge 100 ]; then
+  informed_score=$((informed_score + 2))
+elif [ "$total_entries" -ge 40 ]; then
+  informed_score=$((informed_score + 1))
+fi
+informed_reasons="${total_entries} charts total"
+
+# Signal 2: Coverage — error charts (protective) + agent profiles (prepared)
+chart_listing=$(chart list 300 2>/dev/null)
+error_charts=$(echo "$chart_listing" | grep -c "^issue\|^error" || echo "0")
+agent_charts=$(echo "$chart_listing" | grep -c "agent-" || echo "0")
+vision_charts=$(echo "$chart_listing" | grep -c "^vision" || echo "0")
+[ "$error_charts" -ge 5 ] && informed_score=$((informed_score + 1)) && informed_reasons="${informed_reasons}, ${error_charts} error charts (protective)"
+[ "$agent_charts" -ge 10 ] && informed_score=$((informed_score + 1)) && informed_reasons="${informed_reasons}, ${agent_charts} agent profiles (prepared)"
+[ "$vision_charts" -ge 2 ] && informed_score=$((informed_score + 1)) && informed_reasons="${informed_reasons}, ${vision_charts} vision charts (north star)"
+
+# Clamp
+[ "$informed_score" -gt 10 ] && informed_score=10
+[ "$informed_score" -lt 0 ] && informed_score=0
+
+SCORES["system_informed"]=$informed_score
+SCORE_REASONS["system_informed"]="$informed_reasons"
+
+# INFORMED propagates to every agent (shared memory affects everyone)
+for agent in "${AGENTS[@]}"; do
+  SCORES["${agent}_informed"]=$informed_score
+  SCORE_REASONS["${agent}_informed"]="Shared memory: $informed_reasons"
+done
 
 # ═══════════════════════════════════════════════════════════════
 # OUTPUT
@@ -385,14 +425,14 @@ if [ "$MODE" = "--json" ]; then
     [ "$i" -eq $((${#AGENTS[@]} - 1)) ] && comma=""
     avg=0
     sum=0
-    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted; do
+    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted informed; do
       sum=$((sum + ${SCORES["${agent}_${intent}"]:-0}))
     done
-    avg=$((sum / 11))
+    avg=$((sum / 12))
     echo "    \"$agent\": {\"name\":\"$name\",\"avg\":$avg,\"context_pct\":${AGENT_CONTEXT_PCT[$agent]:-0},\"skills\":${AGENT_SKILL_COUNT[$agent]:-0},\"sessions\":${AGENT_SESSION_COUNT[$agent]:-0}}${comma}"
   done
   echo "  },"
-  echo "  \"system\": {\"self_awareness\":${SCORES[system_self_awareness]},\"checkin\":${SCORES[system_checkin]},\"training\":${SCORES[system_training]},\"workforce\":${SCORES[system_workforce]},\"equal_respect\":${SCORES[system_equal_respect]},\"intent_endures\":${SCORES[system_intent_endures]}}"
+  echo "  \"system\": {\"self_awareness\":${SCORES[system_self_awareness]},\"checkin\":${SCORES[system_checkin]},\"training\":${SCORES[system_training]},\"workforce\":${SCORES[system_workforce]},\"equal_respect\":${SCORES[system_equal_respect]},\"intent_endures\":${SCORES[system_intent_endures]},\"informed\":${SCORES[system_informed]}}"
   echo "}"
 else
   echo "╔══════════════════════════════════════════════════════════════╗"
@@ -407,10 +447,10 @@ else
 
     # Calculate average
     sum=0
-    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted; do
+    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted informed; do
       sum=$((sum + ${SCORES["${agent}_${intent}"]:-0}))
     done
-    avg=$((sum / 11))
+    avg=$((sum / 12))
 
     # State emoji
     state="ok"
@@ -418,7 +458,7 @@ else
     [ "$pct" -gt 85 ] && state="OVERLOADED"
 
     printf "┌─ %-14s (%-12s) ── avg: %d/10 ── context: %d%% %s\n" "$name" "$agent" "$avg" "$pct" "$state"
-    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted; do
+    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted informed; do
       s=${SCORES["${agent}_${intent}"]:-0}
       r="${SCORE_REASONS["${agent}_${intent}"]:-}"
       bar=""
@@ -431,7 +471,7 @@ else
   done
 
   echo "┌─ SYSTEM (orchestrator + meta intents)"
-  for intent in self_awareness checkin training workforce equal_respect intent_endures; do
+  for intent in self_awareness checkin training workforce equal_respect intent_endures informed; do
     s=${SCORES["system_${intent}"]:-0}
     r="${SCORE_REASONS["system_${intent}"]:-}"
     bar=""

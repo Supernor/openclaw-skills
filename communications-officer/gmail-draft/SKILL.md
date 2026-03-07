@@ -8,7 +8,7 @@ tags: [email, gmail, draft, compose, write]
 Default mode for all outbound email. Creates draft for human review.
 ## Execution
 1. Parse: --to, --subject, --body, optional --cc, --bcc, --attach
-2. Run: `gog gmail draft --to "<email>" --subject "<subject>" --body "<body>"`
+2. Run: `gog gmail drafts create --account relay.supernor@gmail.com --to "<email>" --subject "<subject>" --body "<body>"`
 3. Confirm draft created, provide draft ID
 ## Account Routing
 - Route through correct Google account based on initiating agent/human

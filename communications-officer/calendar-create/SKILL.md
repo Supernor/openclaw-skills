@@ -8,7 +8,7 @@ tags: [calendar, event, create, schedule, meeting]
 When scheduling a new event, meeting, or reminder.
 ## Execution
 1. Parse: --title, --start, --end (ISO format), optional --location, --description
-2. Run: `gog calendar create --title "<title>" --start "YYYY-MM-DDTHH:MM" --end "YYYY-MM-DDTHH:MM"`
+2. Run: `gog calendar create primary --account relay.supernor@gmail.com --title "<title>" --start "YYYY-MM-DDTHH:MM" --end "YYYY-MM-DDTHH:MM"`
 3. Confirm event created with event ID and link
 ## Account Routing
 - Route through correct Google account based on initiating agent/human

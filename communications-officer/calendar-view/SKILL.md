@@ -8,7 +8,7 @@ tags: [calendar, schedule, events, agenda, meetings]
 When checking schedule, upcoming events, or availability.
 ## Execution
 1. Parse: optional --from, --to date range, --max count
-2. Run: `gog calendar list [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--max N]`
+2. Run: `gog calendar events primary --account relay.supernor@gmail.com [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--max N]`
 3. Format events as readable list
 ## Account Routing
 - Route through correct Google account based on initiating agent/human

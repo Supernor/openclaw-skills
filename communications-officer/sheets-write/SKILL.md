@@ -7,8 +7,9 @@ tags: [sheets, spreadsheet, write, append, data]
 ## When to use
 When writing new data or appending rows to a spreadsheet.
 ## Execution
-1. Parse: sheet ID, --range, --values (JSON array)
-2. Run: `gog sheets append <sheet-id> --range "A1" --values '[[row1],[row2]]'`
+1. Parse: sheet ID, range, values
+2. Run: `gog sheets append <sheet-id> "<range>" '<values>' --account relay.supernor@gmail.com`
+   - Or update: `gog sheets update <sheet-id> "<range>" '<values>' --account relay.supernor@gmail.com`
 3. Confirm rows written
 ## Account Routing
 - Route through correct Google account based on initiating agent/human
