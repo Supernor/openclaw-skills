@@ -33,3 +33,5 @@ oc sessions cleanup --agent relay             # Single agent
 ## Rules
 - Always `--dry-run` first
 - Check with Robert before cleaning sessions on active project channels
+
+Intent: Efficient [I06]. Purpose: [P-TBD].

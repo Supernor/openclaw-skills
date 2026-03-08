@@ -44,3 +44,5 @@ Flag any `stale: true` repos (>7 days since push) with ⚠️.
 ## Notes
 - Do NOT re-implement — always use the script
 - Stale repos may mean backup cron isn't running
+
+Intent: Observable [I13]. Purpose: [P-TBD].

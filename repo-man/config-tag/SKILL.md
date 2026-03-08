@@ -33,3 +33,5 @@ Examples:
 - After key rotation
 - Before/after major infrastructure updates
 - When Claude Code reports changes via CHANGELOG.md
+
+Intent: Coherent [I19]. Purpose: [P-TBD].

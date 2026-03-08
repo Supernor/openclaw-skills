@@ -69,3 +69,5 @@ chart add "skill-refresh-<date>" "Refreshed N skills. Changes: [list]. New MCP s
 - Deprecated commands or flags
 - New plugin capabilities
 - GitHub PRs tagged with `skill`, `mcp`, `cli`, or `plugin`
+
+Intent: Growing [I09]. Purpose: [P-TBD].

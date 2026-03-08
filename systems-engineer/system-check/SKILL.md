@@ -67,3 +67,5 @@ bash /root/.openclaw/scripts/bridge.sh status
 
 ## Response format
 Report: healthy/degraded/down for each subsystem. Flag anything needing attention.
+
+Intent: Observable [I13]. Purpose: [P-TBD].

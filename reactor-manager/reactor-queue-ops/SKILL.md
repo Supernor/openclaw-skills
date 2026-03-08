@@ -59,3 +59,5 @@ Queue Status:
 - **Read-only** — never modify inbox files or ledger entries
 - **Serialized lane** — only one task runs at a time. If in-progress exists, all others wait.
 - Report queue depth honestly. If backlog > 3, flag it as a concern.
+
+Intent: Efficient [I06]. Purpose: [P-TBD].

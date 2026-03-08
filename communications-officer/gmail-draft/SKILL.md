@@ -14,3 +14,5 @@ Default mode for all outbound email. Creates draft for human review.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log draft creation via log-event
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

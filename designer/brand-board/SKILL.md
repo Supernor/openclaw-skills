@@ -42,3 +42,5 @@ Create a brand identity reference from project inputs.
 
 ## Output
 Visual brand board + palette + font recommendations + logo concepts
+
+Intent: Competent [I03]. Purpose: [P-TBD].

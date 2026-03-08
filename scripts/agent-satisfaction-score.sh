@@ -1,27 +1,46 @@
 #!/usr/bin/env bash
-# agent-satisfaction-score.sh — Score all 17 intents with real data
+# agent-satisfaction-score.sh — Score 19 intents per agent
 #
-# Each intent gets a 0-10 score based on measurable signals.
-# No guessing, no self-reporting — only data we can query.
+# Aligned to the intent-based governance framework (2026-03-07).
+# Every intent scored per-agent, 0-10, from measurable signals only.
+# System-wide signals (like shared memory) propagate to all agents.
+#
+# System is driven by two dimensions:
+#   Intent [I##] — quality of execution (HOW well)
+#   Purpose Toward Vision [P##] — alignment to goals (WHY)
+# Plus two derived reports (no extra tags):
+#   Progress — completed work per P-code
+#   Method — which engine/agent (from ledger)
+#
+# Intent Groups (19 intents):
+#   EXECUTION:  Accurate, Competent, Reliable, Efficient, Resourceful
+#   RESILIENCE: Resilient, Trusted, Recoverable
+#   GROWTH:     Growing, Adaptive, Autonomous, Informed
+#   CONNECTION: Understood, Responsive, Connected
+#   AWARENESS:  Aware, Observable, Coherent, Secure
 #
 # Usage:
 #   agent-satisfaction-score.sh              # human-readable report
 #   agent-satisfaction-score.sh --json       # machine-readable
 #   agent-satisfaction-score.sh --agent relay # single agent detail
 
-set -eo pipefail
+set -o pipefail
 
 MODE="${1:-report}"
 FILTER_AGENT="${2:-}"
 COMPOSE_DIR="/root/openclaw"
 LEDGER="/root/.openclaw/bridge/reactor-ledger.sqlite"
 LOG_DIR="/root/.openclaw/logs"
+HEALTH_BUFFER="/root/.openclaw/health/buffer.jsonl"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 AGENTS=("relay" "main" "spec-projects" "spec-github" "spec-dev" "spec-reactor" "spec-browser" "spec-research" "spec-security" "spec-ops" "spec-design" "spec-systems" "spec-comms")
 AGENT_NAMES=("Relay" "Captain" "Scribe" "Repo-Man" "Dev" "Reactor Mgr" "Navigator" "Research" "Security" "Ops Officer" "Designer" "Sys Engineer" "Comms Officer")
 
-# ─── HELPER: score from percentage (higher % = lower score) ───
+INTENT_IDS=(I01 I02 I03 I04 I05 I06 I07 I08 I09 I10 I11 I12 I13 I14 I15 I16 I17 I18 I19)
+INTENT_NAMES=(Accurate Understood Competent Responsive Reliable Efficient Resourceful Resilient Growing Connected Trusted Aware Observable Adaptive Recoverable Secure Autonomous Informed Coherent)
+
+# ─── HELPERS ───
 pct_to_inverse_score() {
   local pct=$1
   if [ "$pct" -le 0 ]; then echo 10
@@ -34,7 +53,6 @@ pct_to_inverse_score() {
   fi
 }
 
-# ─── HELPER: score from percentage (higher % = higher score) ───
 pct_to_score() {
   local pct=$1
   if [ "$pct" -ge 100 ]; then echo 10
@@ -47,437 +65,493 @@ pct_to_score() {
   fi
 }
 
+clamp() {
+  local v=$1
+  [ "$v" -gt 10 ] && v=10
+  [ "$v" -lt 0 ] && v=0
+  echo "$v"
+}
+
+agent_ws() {
+  local agent=$1
+  if [ "$agent" = "main" ]; then
+    echo "/root/.openclaw/workspace"
+  else
+    echo "/root/.openclaw/workspace-$agent"
+  fi
+}
+
 # ═══════════════════════════════════════════════════════════════
-# COLLECT DATA
+# COLLECT DATA (one pass, shared across all intents)
 # ═══════════════════════════════════════════════════════════════
 
-declare -A AGENT_CONTEXT_PCT
-declare -A AGENT_SKILL_COUNT
-declare -A AGENT_SOUL_LINES
-declare -A AGENT_SOUL_HAS_NOT  # Does SOUL.md explicitly state what agent does NOT do?
-declare -A AGENT_HAS_HEARTBEAT
-declare -A AGENT_SESSION_COUNT
-declare -A AGENT_MODEL_ERRORS
-declare -A AGENT_HAS_FALLBACK
+declare -A CTX_PCT SESSION_COUNT SKILL_COUNT SOUL_LINES SOUL_BOUNDARIES
+declare -A HAS_HEARTBEAT HAS_FALLBACK MODEL_ERRORS INTENT_TAG_COUNT
+declare -A HAS_TOOLS_MD HAS_MEMORY_MD HAS_IDENTITY_MD
 
-# --- Context % (Intent: Equipped / Overload) ---
+# --- Sessions + context ---
 for i in "${!AGENTS[@]}"; do
   agent="${AGENTS[$i]}"
-  json=$(cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway openclaw sessions --agent "$agent" --json 2>/dev/null | grep -v "level=warning")
+  json=$(cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway openclaw sessions --agent "$agent" --json 2>/dev/null | grep -v "level=warning") || true
   if [ -n "$json" ]; then
-    peak=$(echo "$json" | jq '[.sessions // [] | .[] | select(.contextTokens > 0 and .totalTokens != null and .totalTokens > 0) | (.totalTokens / .contextTokens * 100 | floor)] | max // 0' 2>/dev/null)
-    AGENT_CONTEXT_PCT[$agent]="${peak:-0}"
-    count=$(echo "$json" | jq '.sessions | length' 2>/dev/null)
-    AGENT_SESSION_COUNT[$agent]="${count:-0}"
+    peak=$(echo "$json" | jq '[.sessions // [] | .[] | select(.contextTokens > 0 and .totalTokens != null and .totalTokens > 0) | (.totalTokens / .contextTokens * 100 | floor)] | max // 0' 2>/dev/null) || true
+    CTX_PCT[$agent]="${peak:-0}"
+    count=$(echo "$json" | jq '.sessions | length' 2>/dev/null) || true
+    SESSION_COUNT[$agent]="${count:-0}"
   else
-    AGENT_CONTEXT_PCT[$agent]=0
-    AGENT_SESSION_COUNT[$agent]=0
+    CTX_PCT[$agent]=0
+    SESSION_COUNT[$agent]=0
   fi
 done
 
-# --- Skills per agent (Intent: Equipped, Focus) ---
+# --- Skills + workspace files ---
 for agent in "${AGENTS[@]}"; do
-  ws="/root/.openclaw/workspace"
-  [ "$agent" != "main" ] && ws="/root/.openclaw/workspace-$agent"
-  # Captain uses workspace/ but also check workspace-main
-  [ "$agent" = "main" ] && ws="/root/.openclaw/workspace"
-  skills=$(ls -d "$ws/skills/"*/ 2>/dev/null | wc -l)
-  AGENT_SKILL_COUNT[$agent]="$skills"
-done
+  ws=$(agent_ws "$agent")
+  SKILL_COUNT[$agent]=$(ls -d "$ws/skills/"*/ 2>/dev/null | wc -l)
 
-# --- SOUL.md quality (Intent: Clarity) ---
-for agent in "${AGENTS[@]}"; do
-  ws="/root/.openclaw/workspace"
-  [ "$agent" != "main" ] && ws="/root/.openclaw/workspace-$agent"
-  [ "$agent" = "main" ] && ws="/root/.openclaw/workspace"
   if [ -f "$ws/SOUL.md" ]; then
-    AGENT_SOUL_LINES[$agent]=$(wc -l < "$ws/SOUL.md")
-    # Check if SOUL.md has explicit "NOT" / "don't" / "never" boundaries
-    nots=$(grep -ciE "(you do not|not your|never |don.t |outside your)" "$ws/SOUL.md" 2>/dev/null || echo 0)
-    AGENT_SOUL_HAS_NOT[$agent]="$nots"
+    SOUL_LINES[$agent]=$(wc -l < "$ws/SOUL.md")
+    SOUL_BOUNDARIES[$agent]=$(grep -ciE "(you do not|not your|never |don.t |outside your)" "$ws/SOUL.md" 2>/dev/null || echo 0)
   else
-    AGENT_SOUL_LINES[$agent]=0
-    AGENT_SOUL_HAS_NOT[$agent]=0
+    SOUL_LINES[$agent]=0
+    SOUL_BOUNDARIES[$agent]=0
   fi
+
+  [ -f "$ws/TOOLS.md" ] && HAS_TOOLS_MD[$agent]="true" || HAS_TOOLS_MD[$agent]="false"
+  [ -f "$ws/MEMORY.md" ] && HAS_MEMORY_MD[$agent]="true" || HAS_MEMORY_MD[$agent]="false"
+  [ -f "$ws/IDENTITY.md" ] && HAS_IDENTITY_MD[$agent]="true" || HAS_IDENTITY_MD[$agent]="false"
+
+  # Intent tags in skills
+  tags=$(grep -rhoP 'I(?:0[1-9]|1[0-8])' "$ws/skills/" 2>/dev/null | sort -u | wc -l)
+  INTENT_TAG_COUNT[$agent]="$tags"
 done
 
-# --- Heartbeat enabled? (Intent: Regular Check-in) ---
-# Only relay has heartbeat enabled currently — check via health snapshot
-relay_hb_enabled="true"  # Known from config
+# --- Heartbeat ---
 for agent in "${AGENTS[@]}"; do
-  if [ "$agent" = "relay" ]; then
-    AGENT_HAS_HEARTBEAT[$agent]="true"
-  else
-    AGENT_HAS_HEARTBEAT[$agent]="false"
-  fi
+  [ "$agent" = "relay" ] && HAS_HEARTBEAT[$agent]="true" || HAS_HEARTBEAT[$agent]="false"
 done
 
-# --- Model fallback availability (Intent: Resilient) ---
+# --- Model fallback + errors ---
 for agent in "${AGENTS[@]}"; do
-  profiles=$(docker compose exec openclaw-gateway cat "/home/node/.openclaw/agents/$agent/agent/auth-profiles.json" 2>/dev/null | grep -v "level=warning" | jq 'length // 0' 2>/dev/null || echo 0)
-  if [ -n "$profiles" ] && [ "$profiles" -gt 1 ]; then
-    AGENT_HAS_FALLBACK[$agent]="true"
+  profiles_json=$(docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T openclaw-gateway cat "/home/node/.openclaw/agents/$agent/agent/auth-profiles.json" 2>/dev/null | grep -v "level=warning") || true
+  if [ -n "$profiles_json" ]; then
+    pcount=$(echo "$profiles_json" | jq 'length // 0' 2>/dev/null) || true
+    HAS_FALLBACK[$agent]=$([ "${pcount:-0}" -gt 1 ] && echo "true" || echo "false")
+    errs=$(echo "$profiles_json" | jq '[to_entries[] | .value.errorCount // 0] | add // 0' 2>/dev/null) || true
+    MODEL_ERRORS[$agent]="${errs:-0}"
   else
-    AGENT_HAS_FALLBACK[$agent]="false"
+    HAS_FALLBACK[$agent]="false"
+    MODEL_ERRORS[$agent]=0
   fi
-  errors=$(docker compose exec openclaw-gateway cat "/home/node/.openclaw/agents/$agent/agent/auth-profiles.json" 2>/dev/null | grep -v "level=warning" | jq '[to_entries[] | .value.errorCount // 0] | add // 0' 2>/dev/null || echo 0)
-  AGENT_MODEL_ERRORS[$agent]="${errors:-0}"
 done
 
-# --- Reactor ledger (Intent: Voice — did results reach audience?) ---
-LEDGER_TOTAL=0
-LEDGER_COMPLETED=0
-LEDGER_FAILED=0
-LEDGER_HANDOFFS_SENT=0
-LEDGER_HANDOFFS_ACKED=0
+# --- Reactor ledger ---
+LEDGER_TOTAL=0; LEDGER_COMPLETED=0; LEDGER_FAILED=0
+LEDGER_HANDOFFS_SENT=0; LEDGER_HANDOFFS_ACKED=0
 if [ -f "$LEDGER" ]; then
-  ledger_raw=$(sqlite3 "$LEDGER" "SELECT COUNT(*) || '|' || COALESCE(SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END),0) || '|' || COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0) || '|' || COALESCE(SUM(CASE WHEN relay_handoff_sent=1 THEN 1 ELSE 0 END),0) || '|' || COALESCE(SUM(CASE WHEN relay_handoff_acked=1 THEN 1 ELSE 0 END),0) FROM jobs" 2>/dev/null)
+  ledger_raw=$(sqlite3 "$LEDGER" "SELECT COUNT(*) || '|' || COALESCE(SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END),0) || '|' || COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0) || '|' || COALESCE(SUM(CASE WHEN relay_handoff_sent=1 THEN 1 ELSE 0 END),0) || '|' || COALESCE(SUM(CASE WHEN relay_handoff_acked=1 THEN 1 ELSE 0 END),0) FROM jobs" 2>/dev/null) || true
   IFS='|' read LEDGER_TOTAL LEDGER_COMPLETED LEDGER_FAILED LEDGER_HANDOFFS_SENT LEDGER_HANDOFFS_ACKED <<< "$ledger_raw"
 fi
 
-# ═══════════════════════════════════════════════════════════════
-# SCORE EACH INTENT
-# ═══════════════════════════════════════════════════════════════
+# --- Chartroom stats (shared, for I18 INFORMED) ---
+chart_listing=$(chart list 300 2>/dev/null) || true
+total_charts=$(echo "$chart_listing" | tail -1 | grep -oP '\d+' || echo "0")
+error_charts=$(echo "$chart_listing" | grep -c "^issue\|^error" || echo "0")
+vision_charts=$(echo "$chart_listing" | grep -c "^vision" || echo "0")
 
-declare -A SCORES
-declare -A SCORE_REASONS
-
-# --- 1. CLARITY: Does agent know what it does AND doesn't do? ---
-for i in "${!AGENTS[@]}"; do
-  agent="${AGENTS[$i]}"
-  soul=${AGENT_SOUL_LINES[$agent]:-0}
-  nots=${AGENT_SOUL_HAS_NOT[$agent]:-0}
-  score=5
-  [ "$soul" -gt 50 ] && score=$((score + 2))
-  [ "$soul" -gt 100 ] && score=$((score + 1))
-  [ "$nots" -gt 0 ] && score=$((score + 2))  # Has explicit boundaries
-  [ "$score" -gt 10 ] && score=10
-  [ "$soul" -eq 0 ] && score=0
-  SCORES["${agent}_clarity"]=$score
-  SCORE_REASONS["${agent}_clarity"]="SOUL.md: ${soul} lines, ${nots} boundary statements"
-done
-
-# --- 2. HARMONY: Handoff success rate ---
-harmony_score=5
-if [ "$LEDGER_HANDOFFS_SENT" -gt 0 ]; then
-  ack_pct=$((LEDGER_HANDOFFS_ACKED * 100 / LEDGER_HANDOFFS_SENT))
-  harmony_score=$(pct_to_score $ack_pct)
-fi
-for agent in "${AGENTS[@]}"; do
-  SCORES["${agent}_harmony"]=$harmony_score
-  SCORE_REASONS["${agent}_harmony"]="Handoffs: ${LEDGER_HANDOFFS_ACKED}/${LEDGER_HANDOFFS_SENT} acked"
-done
-
-# --- 3. FOCUS: Skill count in sweet spot (3-7 = ideal) ---
-for agent in "${AGENTS[@]}"; do
-  skills=${AGENT_SKILL_COUNT[$agent]:-0}
-  if [ "$skills" -ge 3 ] && [ "$skills" -le 7 ]; then
-    score=10
-  elif [ "$skills" -ge 1 ] && [ "$skills" -le 12 ]; then
-    score=7
-  elif [ "$skills" -gt 12 ]; then
-    score=5  # Too many — fragmented
-  else
-    score=3  # No skills — underequipped
+# --- Staleness count (for I18 INFORMED) — read from health buffer, not live scan ---
+stale_chart_count=999
+if [ -f "$HEALTH_BUFFER" ]; then
+  latest_stale=$(grep '"chart-stale"' "$HEALTH_BUFFER" 2>/dev/null | tail -1) || true
+  if [ -n "$latest_stale" ]; then
+    stale_chart_count=$(echo "$latest_stale" | jq -r '.stale_count // 999' 2>/dev/null) || true
   fi
-  SCORES["${agent}_focus"]=$score
-  SCORE_REASONS["${agent}_focus"]="$skills skills (sweet spot: 3-7)"
-done
-
-# --- 4. VOICE: Do results reach their audience? ---
-voice_score=5
-voice_reason="No reactor data"
-if [ "$LEDGER_TOTAL" -gt 0 ]; then
-  completion_pct=$((LEDGER_COMPLETED * 100 / LEDGER_TOTAL))
-  voice_score=$(pct_to_score $completion_pct)
-  voice_reason="Tasks: ${LEDGER_COMPLETED}/${LEDGER_TOTAL} completed (${completion_pct}%)"
 fi
-for agent in "${AGENTS[@]}"; do
-  SCORES["${agent}_voice"]=$voice_score
-  SCORE_REASONS["${agent}_voice"]="$voice_reason"
-done
 
-# --- 5. FIT: Routing accuracy (need Captain routing logs — estimate from session diversity) ---
-for agent in "${AGENTS[@]}"; do
-  sessions=${AGENT_SESSION_COUNT[$agent]:-0}
-  score=7  # Default: assume routing works
-  # Captain gets scored on whether specialists have sessions (meaning work reaches them)
-  if [ "$agent" = "main" ]; then
-    active_specialists=0
-    for spec in spec-dev spec-projects spec-github spec-research spec-security; do
-      [ "${AGENT_SESSION_COUNT[$spec]:-0}" -gt 0 ] && active_specialists=$((active_specialists + 1))
-    done
-    fit_pct=$((active_specialists * 100 / 5))
-    score=$(pct_to_score $fit_pct)
-    SCORE_REASONS["${agent}_fit"]="$active_specialists/5 specialists have sessions"
-  else
-    SCORE_REASONS["${agent}_fit"]="$sessions sessions (work is arriving)"
-    [ "$sessions" -eq 0 ] && score=3 && SCORE_REASONS["${agent}_fit"]="No sessions — no work reaching this agent"
+# --- Health buffer freshness (for I13 OBSERVABLE) ---
+buffer_age_hrs=999
+if [ -f "$HEALTH_BUFFER" ]; then
+  last_ts=$(tail -1 "$HEALTH_BUFFER" 2>/dev/null | jq -r '.ts // empty' 2>/dev/null) || true
+  if [ -n "$last_ts" ]; then
+    last_epoch=$(date -d "$last_ts" +%s 2>/dev/null) || true
+    now_epoch=$(date +%s)
+    if [ -n "$last_epoch" ]; then
+      buffer_age_hrs=$(( (now_epoch - last_epoch) / 3600 ))
+    fi
   fi
-  SCORES["${agent}_fit"]=$score
-done
+fi
 
-# --- 6. FLOW: Measured by context efficiency (lower context % for same work = better flow) ---
+# --- Security: config permissions (for I16 SECURE) ---
+config_perms=$(stat -c %a /root/.openclaw/openclaw.json 2>/dev/null || echo "unknown")
+env_perms=$(stat -c %a /root/openclaw/.env 2>/dev/null || echo "unknown")
+
+# ═══════════════════════════════════════════════════════════════
+# SCORE ALL 19 INTENTS PER AGENT
+# ═══════════════════════════════════════════════════════════════
+
+declare -A SCORES REASONS
+
 for agent in "${AGENTS[@]}"; do
-  pct=${AGENT_CONTEXT_PCT[$agent]:-0}
-  score=$(pct_to_inverse_score $pct)
-  SCORES["${agent}_flow"]=$score
-  SCORE_REASONS["${agent}_flow"]="Context at ${pct}% — lower = more room to work"
-done
 
-# --- 7. EQUIPPED: Skills + memory + context headroom ---
-for agent in "${AGENTS[@]}"; do
-  skills=${AGENT_SKILL_COUNT[$agent]:-0}
-  pct=${AGENT_CONTEXT_PCT[$agent]:-0}
-  soul=${AGENT_SOUL_LINES[$agent]:-0}
-  score=5
-  [ "$skills" -gt 0 ] && score=$((score + 2))
-  [ "$pct" -lt 70 ] && score=$((score + 2))  # Has headroom
-  [ "$soul" -gt 0 ] && score=$((score + 1))
-  [ "$score" -gt 10 ] && score=10
-  SCORES["${agent}_equipped"]=$score
-  SCORE_REASONS["${agent}_equipped"]="${skills} skills, ${pct}% context, SOUL.md ${soul}L"
-done
-
-# --- 8. RESILIENT: Has fallback model? Model errors? ---
-for agent in "${AGENTS[@]}"; do
-  fallback="${AGENT_HAS_FALLBACK[$agent]:-false}"
-  errors="${AGENT_MODEL_ERRORS[$agent]:-0}"
-  score=5
-  [ "$fallback" = "true" ] && score=$((score + 3))
-  [ "$errors" -eq 0 ] && score=$((score + 2))
-  [ "$errors" -gt 5 ] && score=$((score - 3))
-  [ "$score" -gt 10 ] && score=10
-  [ "$score" -lt 0 ] && score=0
-  SCORES["${agent}_resilient"]=$score
-  SCORE_REASONS["${agent}_resilient"]="Fallback: $fallback, model errors: $errors"
-done
-
-# --- 9. GROWING: Chartroom entries exist for this agent? Skills added recently? ---
-for agent in "${AGENTS[@]}"; do
-  # Simple proxy: skill count > 0 and SOUL.md > 50 lines means someone is investing
-  skills=${AGENT_SKILL_COUNT[$agent]:-0}
-  soul=${AGENT_SOUL_LINES[$agent]:-0}
-  score=5
-  [ "$skills" -gt 2 ] && score=$((score + 2))
-  [ "$soul" -gt 80 ] && score=$((score + 2))
-  [ "$skills" -eq 0 ] && [ "$soul" -lt 30 ] && score=2
-  [ "$score" -gt 10 ] && score=10
-  SCORES["${agent}_growing"]=$score
-  SCORE_REASONS["${agent}_growing"]="${skills} skills, SOUL ${soul}L"
-done
-
-# --- 10. PURPOSEFUL: Has tasks in ledger OR active sessions? ---
-for agent in "${AGENTS[@]}"; do
-  sessions=${AGENT_SESSION_COUNT[$agent]:-0}
-  score=7
-  [ "$sessions" -gt 3 ] && score=9  # Actively used
-  [ "$sessions" -le 1 ] && score=5  # Low activity
-  SCORES["${agent}_purposeful"]=$score
-  SCORE_REASONS["${agent}_purposeful"]="$sessions sessions"
-done
-
-# --- 11. TRUSTED: Cumulative reliability signal ---
-# Trust = f(completion rate, handoff reliability, context stability, no session bleed)
-# Starts at 5 (neutral). Each positive signal adds, each negative subtracts.
-# This is the intent that decides whether delegation happens.
-for agent in "${AGENTS[@]}"; do
-  trust=5
-  reasons=""
-
-  # Signal 1: Task completion (system-wide for now, per-agent when ledger tracks it)
+  # ─── I01 ACCURATE: Task completion rate, model error rate ───
+  s=5; r=""
   if [ "$LEDGER_TOTAL" -gt 0 ]; then
     comp_pct=$((LEDGER_COMPLETED * 100 / LEDGER_TOTAL))
-    [ "$comp_pct" -ge 80 ] && trust=$((trust + 2)) && reasons="completion ${comp_pct}%"
-    [ "$comp_pct" -ge 60 ] && [ "$comp_pct" -lt 80 ] && trust=$((trust + 1)) && reasons="completion ${comp_pct}%"
-    [ "$comp_pct" -lt 40 ] && trust=$((trust - 2)) && reasons="completion ${comp_pct}% (low)"
+    s=$(pct_to_score $comp_pct)
+    r="tasks ${LEDGER_COMPLETED}/${LEDGER_TOTAL} (${comp_pct}%)"
+  else
+    r="no task data"
   fi
+  errs=${MODEL_ERRORS[$agent]:-0}
+  [ "$errs" -gt 3 ] && s=$((s - 2)) && r="${r}, ${errs} model errors"
+  SCORES["${agent}_I01"]=$(clamp $s)
+  REASONS["${agent}_I01"]="$r"
 
-  # Signal 2: Handoff reliability
+  # ─── I02 UNDERSTOOD: SOUL.md quality + boundary statements ───
+  soul=${SOUL_LINES[$agent]:-0}
+  nots=${SOUL_BOUNDARIES[$agent]:-0}
+  s=5
+  [ "$soul" -gt 50 ] && s=$((s + 2))
+  [ "$soul" -gt 100 ] && s=$((s + 1))
+  [ "$nots" -gt 0 ] && s=$((s + 2))
+  [ "$soul" -eq 0 ] && s=0
+  SCORES["${agent}_I02"]=$(clamp $s)
+  REASONS["${agent}_I02"]="SOUL.md: ${soul}L, ${nots} boundaries"
+
+  # ─── I03 COMPETENT: Skills count in sweet spot + workspace files ───
+  skills=${SKILL_COUNT[$agent]:-0}
+  s=5
+  [ "$skills" -ge 3 ] && [ "$skills" -le 7 ] && s=10
+  [ "$skills" -ge 1 ] && [ "$skills" -lt 3 ] && s=7
+  [ "$skills" -gt 7 ] && [ "$skills" -le 12 ] && s=8
+  [ "$skills" -gt 12 ] && s=6
+  [ "$skills" -eq 0 ] && s=3
+  [ "${HAS_TOOLS_MD[$agent]}" = "true" ] && s=$((s + 0)) || s=$((s - 1))
+  SCORES["${agent}_I03"]=$(clamp $s)
+  REASONS["${agent}_I03"]="${skills} skills, TOOLS.md:${HAS_TOOLS_MD[$agent]}"
+
+  # ─── I04 RESPONSIVE: Sessions active + handoff ack rate ───
+  sessions=${SESSION_COUNT[$agent]:-0}
+  s=5
+  [ "$sessions" -gt 0 ] && s=$((s + 2))
+  [ "$sessions" -gt 3 ] && s=$((s + 2))
   if [ "$LEDGER_HANDOFFS_SENT" -gt 0 ]; then
     ack_pct=$((LEDGER_HANDOFFS_ACKED * 100 / LEDGER_HANDOFFS_SENT))
-    [ "$ack_pct" -ge 90 ] && trust=$((trust + 1)) && reasons="${reasons}, handoffs ${ack_pct}%"
-    [ "$ack_pct" -lt 50 ] && trust=$((trust - 2)) && reasons="${reasons}, handoffs ${ack_pct}% (unreliable)"
+    [ "$ack_pct" -ge 80 ] && s=$((s + 1))
+    [ "$ack_pct" -lt 50 ] && s=$((s - 2))
   fi
+  SCORES["${agent}_I04"]=$(clamp $s)
+  REASONS["${agent}_I04"]="${sessions} sessions, handoffs ${LEDGER_HANDOFFS_ACKED}/${LEDGER_HANDOFFS_SENT}"
 
-  # Signal 3: Context stability (not chronically overloaded)
-  pct=${AGENT_CONTEXT_PCT[$agent]:-0}
-  [ "$pct" -lt 50 ] && trust=$((trust + 1)) && reasons="${reasons}, headroom"
-  [ "$pct" -gt 85 ] && trust=$((trust - 2)) && reasons="${reasons}, overloaded"
+  # ─── I05 RELIABLE: Completion + context stability + model stability ───
+  s=5
+  r=""
+  if [ "$LEDGER_TOTAL" -gt 0 ]; then
+    comp_pct=$((LEDGER_COMPLETED * 100 / LEDGER_TOTAL))
+    [ "$comp_pct" -ge 80 ] && s=$((s + 2)) && r="completion ${comp_pct}%"
+    [ "$comp_pct" -lt 40 ] && s=$((s - 2)) && r="completion ${comp_pct}% (low)"
+  fi
+  pct=${CTX_PCT[$agent]:-0}
+  [ "$pct" -lt 50 ] && s=$((s + 1)) && r="${r:+$r, }headroom"
+  [ "$pct" -gt 85 ] && s=$((s - 2)) && r="${r:+$r, }overloaded ${pct}%"
+  errs=${MODEL_ERRORS[$agent]:-0}
+  [ "$errs" -eq 0 ] && s=$((s + 1)) && r="${r:+$r, }no model errors"
+  [ "$errs" -gt 3 ] && s=$((s - 1)) && r="${r:+$r, }${errs} errors"
+  [ -z "$r" ] && r="baseline"
+  SCORES["${agent}_I05"]=$(clamp $s)
+  REASONS["${agent}_I05"]="$r"
 
-  # Signal 4: Model stability (no errors = reliable)
-  errs=${AGENT_MODEL_ERRORS[$agent]:-0}
-  [ "$errs" -eq 0 ] && trust=$((trust + 1)) && reasons="${reasons}, no model errors"
-  [ "$errs" -gt 3 ] && trust=$((trust - 1)) && reasons="${reasons}, ${errs} model errors"
+  # ─── I06 EFFICIENT: Context usage (lower = more efficient) ───
+  pct=${CTX_PCT[$agent]:-0}
+  s=$(pct_to_inverse_score $pct)
+  SCORES["${agent}_I06"]=$(clamp $s)
+  REASONS["${agent}_I06"]="context ${pct}%"
 
-  # Clamp
-  [ "$trust" -gt 10 ] && trust=10
-  [ "$trust" -lt 0 ] && trust=0
+  # ─── I07 RESOURCEFUL: Skills + SOUL + memory access ───
+  skills=${SKILL_COUNT[$agent]:-0}
+  soul=${SOUL_LINES[$agent]:-0}
+  s=5
+  [ "$skills" -gt 0 ] && s=$((s + 2))
+  [ "${CTX_PCT[$agent]:-0}" -lt 70 ] && s=$((s + 1))
+  [ "$soul" -gt 0 ] && s=$((s + 1))
+  [ "${HAS_MEMORY_MD[$agent]}" = "true" ] && s=$((s + 1))
+  SCORES["${agent}_I07"]=$(clamp $s)
+  REASONS["${agent}_I07"]="${skills} skills, SOUL ${soul}L, MEMORY.md:${HAS_MEMORY_MD[$agent]}"
 
-  # Clean up reasons string
-  reasons=$(echo "$reasons" | sed 's/^, //')
-  [ -z "$reasons" ] && reasons="baseline (no data)"
+  # ─── I08 RESILIENT: Fallback model + error recovery ───
+  s=5
+  [ "${HAS_FALLBACK[$agent]}" = "true" ] && s=$((s + 3))
+  errs=${MODEL_ERRORS[$agent]:-0}
+  [ "$errs" -eq 0 ] && s=$((s + 2))
+  [ "$errs" -gt 5 ] && s=$((s - 3))
+  SCORES["${agent}_I08"]=$(clamp $s)
+  REASONS["${agent}_I08"]="fallback:${HAS_FALLBACK[$agent]}, errors:$errs"
 
-  SCORES["${agent}_trusted"]=$trust
-  SCORE_REASONS["${agent}_trusted"]="$reasons"
-done
+  # ─── I09 GROWING: Skills investment + SOUL depth ───
+  skills=${SKILL_COUNT[$agent]:-0}
+  soul=${SOUL_LINES[$agent]:-0}
+  s=5
+  [ "$skills" -gt 2 ] && s=$((s + 2))
+  [ "$soul" -gt 80 ] && s=$((s + 2))
+  [ "$skills" -eq 0 ] && [ "$soul" -lt 30 ] && s=2
+  SCORES["${agent}_I09"]=$(clamp $s)
+  REASONS["${agent}_I09"]="${skills} skills, SOUL ${soul}L"
 
-# --- 11-16: ORCHESTRATOR/META intents (system-wide, not per-agent) ---
-# 11. SELF-AWARENESS: Captain monitors itself (has own context tracked)
-captain_pct=${AGENT_CONTEXT_PCT[main]:-0}
-sa_score=$(pct_to_inverse_score $captain_pct)
-SCORES["system_self_awareness"]=$sa_score
-SCORE_REASONS["system_self_awareness"]="Captain context at ${captain_pct}%"
+  # ─── I10 CONNECTED: Can reach other agents + has sessions ───
+  sessions=${SESSION_COUNT[$agent]:-0}
+  s=5
+  [ "$sessions" -gt 0 ] && s=$((s + 2))
+  # Captain scored on specialist reach
+  if [ "$agent" = "main" ]; then
+    active=0
+    for spec in spec-dev spec-projects spec-github spec-research spec-security spec-ops spec-design spec-systems spec-comms; do
+      [ "${SESSION_COUNT[$spec]:-0}" -gt 0 ] && active=$((active + 1))
+    done
+    pct=$((active * 100 / 9))
+    s=$(pct_to_score $pct)
+    REASONS["${agent}_I10"]="${active}/9 specialists active"
+  else
+    [ "$sessions" -eq 0 ] && s=3
+    [ "$sessions" -gt 3 ] && s=$((s + 2))
+    REASONS["${agent}_I10"]="${sessions} sessions"
+  fi
+  SCORES["${agent}_I10"]=$(clamp $s)
 
-# 12. REGULAR CHECK-IN: Is heartbeat enabled? Is satisfaction report fresh?
-checkin_score=4  # No satisfaction report exists yet
-relay_hb="${AGENT_HAS_HEARTBEAT[relay]:-false}"
-[ "$relay_hb" = "true" ] && checkin_score=$((checkin_score + 3))
-# Check if load history has recent entries
-if [ -f "$LOG_DIR/agent-load-history.jsonl" ]; then
-  recent=$(tail -1 "$LOG_DIR/agent-load-history.jsonl" 2>/dev/null | jq -r '.timestamp' 2>/dev/null)
-  [ -n "$recent" ] && checkin_score=$((checkin_score + 2))
-fi
-[ "$checkin_score" -gt 10 ] && checkin_score=10
-SCORES["system_checkin"]=$checkin_score
-SCORE_REASONS["system_checkin"]="Heartbeat: $relay_hb, load tracking: $([ -f "$LOG_DIR/agent-load-history.jsonl" ] && echo "active" || echo "none")"
+  # ─── I11 TRUSTED: Cumulative reliability (completion + handoff + stability) ───
+  s=5; r=""
+  if [ "$LEDGER_TOTAL" -gt 0 ]; then
+    comp_pct=$((LEDGER_COMPLETED * 100 / LEDGER_TOTAL))
+    [ "$comp_pct" -ge 80 ] && s=$((s + 2)) && r="completion ${comp_pct}%"
+    [ "$comp_pct" -lt 40 ] && s=$((s - 2)) && r="completion ${comp_pct}% (low)"
+  fi
+  if [ "$LEDGER_HANDOFFS_SENT" -gt 0 ]; then
+    ack_pct=$((LEDGER_HANDOFFS_ACKED * 100 / LEDGER_HANDOFFS_SENT))
+    [ "$ack_pct" -ge 90 ] && s=$((s + 1)) && r="${r:+$r, }handoffs ${ack_pct}%"
+    [ "$ack_pct" -lt 50 ] && s=$((s - 2)) && r="${r:+$r, }handoffs ${ack_pct}% (bad)"
+  fi
+  pct=${CTX_PCT[$agent]:-0}
+  [ "$pct" -lt 50 ] && s=$((s + 1)) && r="${r:+$r, }headroom"
+  [ "$pct" -gt 85 ] && s=$((s - 2)) && r="${r:+$r, }overloaded"
+  errs=${MODEL_ERRORS[$agent]:-0}
+  [ "$errs" -eq 0 ] && s=$((s + 1)) && r="${r:+$r, }stable model"
+  [ -z "$r" ] && r="baseline"
+  SCORES["${agent}_I11"]=$(clamp $s)
+  REASONS["${agent}_I11"]="$r"
 
-# 13. TRAINING: All agents have SOUL.md + skills?
-trained=0
-for agent in "${AGENTS[@]}"; do
-  soul=${AGENT_SOUL_LINES[$agent]:-0}
-  skills=${AGENT_SKILL_COUNT[$agent]:-0}
-  [ "$soul" -gt 30 ] && [ "$skills" -gt 0 ] && trained=$((trained + 1))
-done
-train_pct=$((trained * 100 / ${#AGENTS[@]}))
-SCORES["system_training"]=$(pct_to_score $train_pct)
-SCORE_REASONS["system_training"]="$trained/${#AGENTS[@]} agents fully equipped"
+  # ─── I12 AWARE: Has heartbeat + IDENTITY.md + context not maxed ───
+  s=5
+  [ "${HAS_HEARTBEAT[$agent]}" = "true" ] && s=$((s + 2))
+  [ "${HAS_IDENTITY_MD[$agent]}" = "true" ] && s=$((s + 1))
+  pct=${CTX_PCT[$agent]:-0}
+  [ "$pct" -gt 85 ] && s=$((s - 2))  # Can't be aware if overloaded
+  [ "$pct" -lt 50 ] && s=$((s + 1))
+  soul=${SOUL_LINES[$agent]:-0}
+  [ "$soul" -gt 50 ] && s=$((s + 1))
+  SCORES["${agent}_I12"]=$(clamp $s)
+  REASONS["${agent}_I12"]="heartbeat:${HAS_HEARTBEAT[$agent]}, IDENTITY:${HAS_IDENTITY_MD[$agent]}, ctx:${pct}%"
 
-# 14. WORKFORCE MGMT: Any chronically overloaded agents?
-wf_score=8
-for agent in "${AGENTS[@]}"; do
-  [ "${AGENT_CONTEXT_PCT[$agent]:-0}" -gt 85 ] && wf_score=$((wf_score - 2))
-done
-[ "$wf_score" -lt 0 ] && wf_score=0
-SCORES["system_workforce"]=$wf_score
-SCORE_REASONS["system_workforce"]="Overloaded agents reduce score"
+  # ─── I13 OBSERVABLE: Health buffer freshness + load tracking + session data ───
+  s=5
+  [ "$buffer_age_hrs" -lt 24 ] && s=$((s + 2))
+  [ "$buffer_age_hrs" -lt 6 ] && s=$((s + 1))
+  [ "$buffer_age_hrs" -gt 48 ] && s=$((s - 2))
+  [ -f "$LOG_DIR/agent-load-history.jsonl" ] && s=$((s + 1))
+  sessions=${SESSION_COUNT[$agent]:-0}
+  [ "$sessions" -gt 0 ] && s=$((s + 1))  # Session data exists = observable
+  SCORES["${agent}_I13"]=$(clamp $s)
+  REASONS["${agent}_I13"]="buffer ${buffer_age_hrs}h old, load tracking:$([ -f "$LOG_DIR/agent-load-history.jsonl" ] && echo "yes" || echo "no")"
 
-# 15. EQUAL RESPECT: All agents scored equally? (this script existing = yes)
-SCORES["system_equal_respect"]=8
-SCORE_REASONS["system_equal_respect"]="All 10 agents + system scored by same metrics"
+  # ─── I14 ADAPTIVE: Intent tags present + skills growing ───
+  tags=${INTENT_TAG_COUNT[$agent]:-0}
+  skills=${SKILL_COUNT[$agent]:-0}
+  s=5
+  [ "$tags" -gt 0 ] && s=$((s + 2))
+  [ "$tags" -ge 5 ] && s=$((s + 2))
+  [ "$skills" -gt 3 ] && s=$((s + 1))
+  [ "$tags" -eq 0 ] && s=$((s - 1))  # Not yet tagged = not yet adaptive
+  SCORES["${agent}_I14"]=$(clamp $s)
+  REASONS["${agent}_I14"]="${tags} intent tags, ${skills} skills"
 
-# 17. INTENT ENDURES: Are the intents documented?
-SCORES["system_intent_endures"]=9
-SCORE_REASONS["system_intent_endures"]="18 intents locked in agent-satisfaction-design.md"
+  # ─── I15 RECOVERABLE: Fallback model + session maintenance cron ───
+  s=5
+  [ "${HAS_FALLBACK[$agent]}" = "true" ] && s=$((s + 2))
+  # Session maintenance cron exists?
+  cron_exists=$(crontab -l 2>/dev/null | grep -c "session-maintenance" || echo 0)
+  [ "$cron_exists" -gt 0 ] && s=$((s + 2))
+  errs=${MODEL_ERRORS[$agent]:-0}
+  [ "$errs" -eq 0 ] && s=$((s + 1))
+  SCORES["${agent}_I15"]=$(clamp $s)
+  REASONS["${agent}_I15"]="fallback:${HAS_FALLBACK[$agent]}, session-maint cron:$([ "$cron_exists" -gt 0 ] && echo "yes" || echo "no")"
 
-# 18. INFORMED: Is the shared memory sharp, helpful, protective, prepared?
-# Measures Chartroom quality as experienced by all agents.
-# A sharp memory lifts every agent. A dull memory sinks them all.
-# Signals: vector coverage (can entries be found?), actionability, coverage, freshness.
-informed_score=5
-informed_reasons=""
+  # ─── I16 SECURE: Config permissions + Security Agent active ───
+  s=5
+  [ "$config_perms" = "600" ] && s=$((s + 2))
+  [ "$config_perms" = "644" ] && s=$((s + 1))
+  [ "$env_perms" = "600" ] && s=$((s + 1))
+  # Security agent has sessions = actively watching
+  sec_sessions=${SESSION_COUNT[spec-security]:-0}
+  [ "$sec_sessions" -gt 0 ] && s=$((s + 1))
+  # Agent itself has SOUL boundaries (knows what NOT to do)
+  nots=${SOUL_BOUNDARIES[$agent]:-0}
+  [ "$nots" -gt 0 ] && s=$((s + 1))
+  SCORES["${agent}_I16"]=$(clamp $s)
+  REASONS["${agent}_I16"]="config:$config_perms, .env:$env_perms, sec-agent sessions:$sec_sessions"
 
-# Signal 1: Total chartroom size — more knowledge = better prepared
-total_entries=$(chart list 300 2>/dev/null | tail -1 | grep -oP '\d+' || echo "0")
-if [ "$total_entries" -ge 200 ]; then
-  informed_score=$((informed_score + 3))
-elif [ "$total_entries" -ge 100 ]; then
-  informed_score=$((informed_score + 2))
-elif [ "$total_entries" -ge 40 ]; then
-  informed_score=$((informed_score + 1))
-fi
-informed_reasons="${total_entries} charts total"
+  # ─── I17 AUTONOMOUS: Has skills + low error rate + not overloaded ───
+  skills=${SKILL_COUNT[$agent]:-0}
+  pct=${CTX_PCT[$agent]:-0}
+  errs=${MODEL_ERRORS[$agent]:-0}
+  s=5
+  [ "$skills" -ge 3 ] && s=$((s + 2))
+  [ "$pct" -lt 50 ] && s=$((s + 1))
+  [ "$errs" -eq 0 ] && s=$((s + 1))
+  [ "${HAS_FALLBACK[$agent]}" = "true" ] && s=$((s + 1))
+  [ "$skills" -eq 0 ] && s=2
+  SCORES["${agent}_I17"]=$(clamp $s)
+  REASONS["${agent}_I17"]="${skills} skills, ctx ${pct}%, errors:$errs"
 
-# Signal 2: Coverage — error charts (protective) + agent profiles (prepared)
-chart_listing=$(chart list 300 2>/dev/null)
-error_charts=$(echo "$chart_listing" | grep -c "^issue\|^error" || echo "0")
-agent_charts=$(echo "$chart_listing" | grep -c "agent-" || echo "0")
-vision_charts=$(echo "$chart_listing" | grep -c "^vision" || echo "0")
-[ "$error_charts" -ge 5 ] && informed_score=$((informed_score + 1)) && informed_reasons="${informed_reasons}, ${error_charts} error charts (protective)"
-[ "$agent_charts" -ge 10 ] && informed_score=$((informed_score + 1)) && informed_reasons="${informed_reasons}, ${agent_charts} agent profiles (prepared)"
-[ "$vision_charts" -ge 2 ] && informed_score=$((informed_score + 1)) && informed_reasons="${informed_reasons}, ${vision_charts} vision charts (north star)"
+  # ─── I18 INFORMED: Shared memory quality + staleness (propagates to all) ───
+  s=5
+  ir=""
+  [ "$total_charts" -ge 200 ] && s=$((s + 3)) || { [ "$total_charts" -ge 100 ] && s=$((s + 2)); } || { [ "$total_charts" -ge 40 ] && s=$((s + 1)); }
+  ir="${total_charts} charts"
+  [ "$error_charts" -ge 5 ] && s=$((s + 1)) && ir="${ir}, ${error_charts} error charts"
+  [ "$vision_charts" -ge 2 ] && s=$((s + 1)) && ir="${ir}, ${vision_charts} vision charts"
+  # Staleness penalty: stale entries degrade Informed
+  [ "$stale_chart_count" -gt 50 ] && s=$((s - 2)) && ir="${ir}, ${stale_chart_count} stale (high)"
+  [ "$stale_chart_count" -gt 20 ] && [ "$stale_chart_count" -le 50 ] && s=$((s - 1)) && ir="${ir}, ${stale_chart_count} stale"
+  [ "$stale_chart_count" -le 5 ] && [ "$stale_chart_count" -ge 0 ] && s=$((s + 1)) && ir="${ir}, low staleness"
+  SCORES["${agent}_I18"]=$(clamp $s)
+  REASONS["${agent}_I18"]="$ir"
 
-# Clamp
-[ "$informed_score" -gt 10 ] && informed_score=10
-[ "$informed_score" -lt 0 ] && informed_score=0
+  # ─── I19 COHERENT: Internal consistency — workspace files, intent awareness, propagation ───
+  soul=${SOUL_LINES[$agent]:-0}
+  s=5; r=""
+  [ "$soul" -gt 30 ] && s=$((s + 1))
+  [ "${HAS_TOOLS_MD[$agent]}" = "true" ] && s=$((s + 1)) && r="TOOLS.md"
+  [ "${HAS_MEMORY_MD[$agent]}" = "true" ] && s=$((s + 1)) && r="${r:+$r, }MEMORY.md"
+  [ "${HAS_IDENTITY_MD[$agent]}" = "true" ] && s=$((s + 1)) && r="${r:+$r, }IDENTITY.md"
+  soul_has_intent=$(grep -cl "intent-framework-complete" "$(agent_ws "$agent")/SOUL.md" 2>/dev/null | wc -l)
+  [ "$soul_has_intent" -gt 0 ] && s=$((s + 1)) && r="${r:+$r, }intent-aware"
+  [ "$soul_has_intent" -eq 0 ] && s=$((s - 1)) && r="${r:+$r, }no intent ref"
+  [ "$soul" -eq 0 ] && s=1
+  SCORES["${agent}_I19"]=$(clamp $s)
+  REASONS["${agent}_I19"]="${r:-baseline}"
 
-SCORES["system_informed"]=$informed_score
-SCORE_REASONS["system_informed"]="$informed_reasons"
-
-# INFORMED propagates to every agent (shared memory affects everyone)
-for agent in "${AGENTS[@]}"; do
-  SCORES["${agent}_informed"]=$informed_score
-  SCORE_REASONS["${agent}_informed"]="Shared memory: $informed_reasons"
 done
 
 # ═══════════════════════════════════════════════════════════════
 # OUTPUT
 # ═══════════════════════════════════════════════════════════════
 
+NUM_INTENTS=19
+
 if [ "$MODE" = "--json" ]; then
   echo "{"
   echo "  \"timestamp\": \"$TIMESTAMP\","
+  echo "  \"framework\": \"I01-I19 v4 + PTV\","
   echo "  \"agents\": {"
   for i in "${!AGENTS[@]}"; do
     agent="${AGENTS[$i]}"
     name="${AGENT_NAMES[$i]}"
     comma=","
     [ "$i" -eq $((${#AGENTS[@]} - 1)) ] && comma=""
-    avg=0
     sum=0
-    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted informed; do
-      sum=$((sum + ${SCORES["${agent}_${intent}"]:-0}))
+    for id in "${INTENT_IDS[@]}"; do
+      sum=$((sum + ${SCORES["${agent}_${id}"]:-0}))
     done
-    avg=$((sum / 12))
-    echo "    \"$agent\": {\"name\":\"$name\",\"avg\":$avg,\"context_pct\":${AGENT_CONTEXT_PCT[$agent]:-0},\"skills\":${AGENT_SKILL_COUNT[$agent]:-0},\"sessions\":${AGENT_SESSION_COUNT[$agent]:-0}}${comma}"
+    avg=$((sum / NUM_INTENTS))
+    echo "    \"$agent\": {\"name\":\"$name\",\"avg\":$avg,\"context_pct\":${CTX_PCT[$agent]:-0},\"skills\":${SKILL_COUNT[$agent]:-0},\"sessions\":${SESSION_COUNT[$agent]:-0}}${comma}"
   done
-  echo "  },"
-  echo "  \"system\": {\"self_awareness\":${SCORES[system_self_awareness]},\"checkin\":${SCORES[system_checkin]},\"training\":${SCORES[system_training]},\"workforce\":${SCORES[system_workforce]},\"equal_respect\":${SCORES[system_equal_respect]},\"intent_endures\":${SCORES[system_intent_endures]},\"informed\":${SCORES[system_informed]}}"
+  echo "  }"
   echo "}"
 else
-  echo "╔══════════════════════════════════════════════════════════════╗"
-  echo "║           AGENT SATISFACTION REPORT — $TIMESTAMP           ║"
-  echo "╚══════════════════════════════════════════════════════════════╝"
+  echo "+=================================================================+"
+  echo "|     AGENT SATISFACTION REPORT -- $TIMESTAMP     |"
+  echo "+=================================================================+"
+  echo ""
+  echo "  Two dimensions: Intent [I##] (how well) + Purpose Toward Vision [P##] (why)"
+  echo "  EXECUTION(Accurate,Competent,Reliable,Efficient,Resourceful)"
+  echo "  RESILIENCE(Resilient,Trusted,Recoverable) GROWTH(Growing,Adaptive,Autonomous,Informed)"
+  echo "  CONNECTION(Understood,Responsive,Connected) AWARENESS(Aware,Observable,Coherent,Secure)"
   echo ""
 
   for i in "${!AGENTS[@]}"; do
     agent="${AGENTS[$i]}"
     name="${AGENT_NAMES[$i]}"
-    pct=${AGENT_CONTEXT_PCT[$agent]:-0}
 
-    # Calculate average
+    # Skip if filtering to single agent
+    [ -n "$FILTER_AGENT" ] && [ "$FILTER_AGENT" != "$agent" ] && continue
+
+    pct=${CTX_PCT[$agent]:-0}
     sum=0
-    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted informed; do
-      sum=$((sum + ${SCORES["${agent}_${intent}"]:-0}))
+    for id in "${INTENT_IDS[@]}"; do
+      sum=$((sum + ${SCORES["${agent}_${id}"]:-0}))
     done
-    avg=$((sum / 12))
+    avg=$((sum / NUM_INTENTS))
 
-    # State emoji
     state="ok"
     [ "$pct" -gt 70 ] && state="STRAINED"
     [ "$pct" -gt 85 ] && state="OVERLOADED"
 
-    printf "┌─ %-14s (%-12s) ── avg: %d/10 ── context: %d%% %s\n" "$name" "$agent" "$avg" "$pct" "$state"
-    for intent in clarity harmony focus voice fit flow equipped resilient growing purposeful trusted informed; do
-      s=${SCORES["${agent}_${intent}"]:-0}
-      r="${SCORE_REASONS["${agent}_${intent}"]:-}"
+    printf "+-- %-14s (%-12s) -- avg: %d/10 -- ctx: %d%% %s\n" "$name" "$agent" "$avg" "$pct" "$state"
+
+    for j in "${!INTENT_IDS[@]}"; do
+      id="${INTENT_IDS[$j]}"
+      iname="${INTENT_NAMES[$j]}"
+      s=${SCORES["${agent}_${id}"]:-0}
+      r="${REASONS["${agent}_${id}"]:-}"
       bar=""
       for ((b=0; b<s; b++)); do bar="${bar}#"; done
       for ((b=s; b<10; b++)); do bar="${bar}."; done
-      printf "│  %-12s [%s] %2d  %s\n" "$intent" "$bar" "$s" "$r"
+      printf "|  %-12s [%-3s] [%s] %2d  %s\n" "$iname" "$id" "$bar" "$s" "$r"
     done
-    echo "└──────────────────────────────────────────────────────────────"
+    echo "+------------------------------------------------------------------"
     echo ""
   done
 
-  echo "┌─ SYSTEM (orchestrator + meta intents)"
-  for intent in self_awareness checkin training workforce equal_respect intent_endures informed; do
-    s=${SCORES["system_${intent}"]:-0}
-    r="${SCORE_REASONS["system_${intent}"]:-}"
-    bar=""
-    for ((b=0; b<s; b++)); do bar="${bar}#"; done
-    for ((b=s; b<10; b++)); do bar="${bar}."; done
-    printf "│  %-16s [%s] %2d  %s\n" "$intent" "$bar" "$s" "$r"
+  # System summary
+  echo "+-- SYSTEM SUMMARY"
+  echo "|"
+  # Compute fleet average
+  fleet_sum=0
+  fleet_count=0
+  for agent in "${AGENTS[@]}"; do
+    agent_sum=0
+    for id in "${INTENT_IDS[@]}"; do
+      agent_sum=$((agent_sum + ${SCORES["${agent}_${id}"]:-0}))
+    done
+    agent_avg=$((agent_sum / NUM_INTENTS))
+    fleet_sum=$((fleet_sum + agent_avg))
+    fleet_count=$((fleet_count + 1))
   done
-  echo "└──────────────────────────────────────────────────────────────"
+  fleet_avg=$((fleet_sum / fleet_count))
+  echo "|  Fleet average: $fleet_avg/10"
+  echo "|  Agents: ${#AGENTS[@]}"
+  echo "|  Total skills: $(for a in "${AGENTS[@]}"; do echo "${SKILL_COUNT[$a]:-0}"; done | paste -sd+ | bc)"
+  echo "|  Chartroom: $total_charts entries"
+  echo "|  Health buffer: ${buffer_age_hrs}h since last entry"
+  echo "|  Stale charts: $stale_chart_count"
+  echo "|"
+
+  # Intent group averages
+  for group_name in "EXECUTION" "RESILIENCE" "GROWTH" "CONNECTION" "AWARENESS"; do
+    case $group_name in
+      EXECUTION)  group_ids=(I01 I03 I05 I06 I07) ;;
+      RESILIENCE) group_ids=(I08 I11 I15) ;;
+      GROWTH)     group_ids=(I09 I14 I17 I18) ;;
+      CONNECTION) group_ids=(I02 I04 I10) ;;
+      AWARENESS)  group_ids=(I12 I13 I16 I19) ;;
+    esac
+    gsum=0; gcount=0
+    for agent in "${AGENTS[@]}"; do
+      for id in "${group_ids[@]}"; do
+        gsum=$((gsum + ${SCORES["${agent}_${id}"]:-0}))
+        gcount=$((gcount + 1))
+      done
+    done
+    gavg=$((gsum / gcount))
+    printf "|  %-12s avg: %d/10  (%s)\n" "$group_name" "$gavg" "${group_ids[*]}"
+  done
+  echo "+------------------------------------------------------------------"
 fi

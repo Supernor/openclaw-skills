@@ -51,3 +51,5 @@ Score all agents across the 17 satisfaction intents.
 
 ## Output
 Full ASCII report with bar charts, per-intent scores, and action recommendations.
+
+Intent: Observable [I13]. Purpose: [P-TBD].

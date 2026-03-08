@@ -39,3 +39,5 @@ React to the pinned message with 📌.
 - Only one decision board should be pinned at a time per channel
 - If no decisions exist for this channel, reply "Nothing to pin — no decisions tracked yet."
 - Include a footer: `Last updated: <YYYY-MM-DD HH:MM UTC>`
+
+Intent: Informed [I18]. Purpose: [P-TBD].

@@ -21,3 +21,5 @@ When reading slide content for summarization, review, or extraction.
 
 ## Logging
 - Log via log-event
+
+Intent: Competent [I03]. Purpose: [P-TBD].

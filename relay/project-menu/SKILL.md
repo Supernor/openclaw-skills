@@ -409,3 +409,5 @@ Relay handles ALL Discord UI rendering. Scribe never renders components.
 - After every action, remind Robert: "Type /project-menu for more options" (but not annoyingly)
 - On archive: CLOSE session, do NOT delete. Keep data for reactivation.
 - On reactivate: restore context from pinned decisions + project file, do not start blank
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

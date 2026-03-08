@@ -79,3 +79,5 @@ If status is `wont-work`, remind the user this is now on the "don't revisit" lis
 - If no rationale given, set Why to "—"
 - Never overwrite existing decisions — append only
 - Status values are case-insensitive on input, stored uppercase
+
+Intent: Trusted [I11]. Purpose: [P-TBD].

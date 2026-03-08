@@ -56,3 +56,5 @@ When the topic is set for a channel, the agent should:
 - Topic is stored in `projects/<channel-name>.md` AND the Discord channel description
 - Keep topics to one sentence (under 100 chars)
 - If bot lacks permission to set Discord channel topic, just update the local file and note the limitation
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

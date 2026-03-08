@@ -48,3 +48,5 @@ browser stop
 - If blocked by bot detection: report as known issue, escalate
 - If content is behind auth: report, ask Captain if credentials are available
 - Always chart new failure patterns via memory_store
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

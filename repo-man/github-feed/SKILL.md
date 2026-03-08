@@ -49,3 +49,5 @@ UPSTREAM_DISCUSSION=$(jq -r '.github.upstream.discussion' ~/.openclaw/registry.j
 ```bash
 /home/node/.openclaw/scripts/log-event.sh INFO github-feed "Posted: <N> own repo cards, <N> upstream cards"
 ```
+
+Intent: Informed [I18]. Purpose: [P-TBD].

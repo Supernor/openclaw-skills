@@ -127,3 +127,5 @@ If no channel matches, respond: "I couldn't find a channel called **<name>**. Ch
 - **Post in current channel** — always respond where Robert asked
 - **Compact output** — this is a glance card, not a report
 - **Graceful degradation** — show whatever data exists, skip what doesn't
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

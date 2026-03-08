@@ -44,3 +44,5 @@ Post each script's JSON output as separate thread replies.
 ```bash
 /home/node/.openclaw/scripts/log-event.sh INFO nightly-report "Posted: <green|yellow|red>, <N> sections flagged"
 ```
+
+Intent: Observable [I13]. Purpose: [P-TBD].

@@ -37,3 +37,5 @@ Write the latest heading to cursor file.
 ```bash
 /home/node/.openclaw/scripts/log-event.sh INFO changelog-post "Posted: <heading>"
 ```
+
+Intent: Informed [I18]. Purpose: [P-TBD].

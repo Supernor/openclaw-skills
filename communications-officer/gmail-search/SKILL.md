@@ -14,3 +14,5 @@ When any agent or human needs to find emails — by keyword, sender, date range,
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log every search via log-event
+
+Intent: Informed [I18]. Purpose: [P-TBD].

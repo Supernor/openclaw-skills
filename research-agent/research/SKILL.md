@@ -60,3 +60,5 @@ Send images, PDFs, or YouTube URLs to Gemini for analysis.
 **Suggested action**: [If any]
 **Token cost**: [Estimated spend for this research]
 ```
+
+Intent: Informed [I18]. Purpose: [P-TBD].

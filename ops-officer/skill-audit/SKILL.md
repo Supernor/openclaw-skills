@@ -60,3 +60,5 @@ Orphan scripts: `racp-split.sh`, `registry.sh`, `bridge.sh`
 
 ### 4. Orphan scripts
 Scripts in `~/.openclaw/scripts/` not referenced by any skill. Not necessarily a problem — some are utility scripts called by other scripts, or used directly by agents. Just informational.
+
+Intent: Coherent [I19]. Purpose: [P-TBD].

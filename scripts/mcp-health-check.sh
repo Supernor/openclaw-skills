@@ -103,3 +103,14 @@ else
   echo ""
   echo "Overall: $status ($TIMESTAMP)"
 fi
+
+# Auto-log failures to issue tracker
+if [ "$status" != "HEALTHY" ]; then
+  for c in "${checks[@]}"; do
+    s=$(echo "$c" | jq -r '.status')
+    if [ "$s" != "ok" ]; then
+      detail=$(echo "$c" | jq -r '"\(.check): \(.detail)"')
+      issue-log "MCP health: $detail" --source mcp-health-check --severity high 2>/dev/null || true
+    fi
+  done
+fi

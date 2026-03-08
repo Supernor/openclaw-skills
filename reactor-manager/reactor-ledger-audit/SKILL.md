@@ -102,3 +102,5 @@ Ledger Audit Report:
 - Report findings factually — do not speculate on causes without evidence
 - Flag integrity issues as HIGH priority
 - If the ledger DB is missing or corrupt, report immediately to Captain
+
+Intent: Observable [I13]. Purpose: [P-TBD].

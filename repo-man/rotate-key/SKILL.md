@@ -54,3 +54,5 @@ docker ps | grep openclaw-gateway
 Success: `[Repo-Man] rotate-key COMPLETE. <KEYNAME> rotated. Gateway restarted. Drift check: ✅. GitHub Secret: ✅.`
 Partial: `[Repo-Man] rotate-key PARTIAL. <KEYNAME> updated in .env. GitHub Secret update FAILED. Gateway: ✅. Manual GH Secret update required.`
 Failed: `[Repo-Man] ⚠️ rotate-key FAILED at step <N>. Gateway may be affected. Check logs immediately.`
+
+Intent: Secure [I16]. Purpose: [P-TBD].

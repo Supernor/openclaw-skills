@@ -39,3 +39,5 @@ Create visual data summaries and process infographics.
 
 ## Output
 SVG infographic image with clean data visualization
+
+Intent: Competent [I03]. Purpose: [P-TBD].

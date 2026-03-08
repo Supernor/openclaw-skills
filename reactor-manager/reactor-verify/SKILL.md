@@ -52,3 +52,5 @@ Action: <what to do if incomplete>
 - Missing bus marker: relay-handoff-watcher.sh may need restart
 - Missing JSONL event: Check reactor.log for the task
 - Missing SQL row: Task may not have been processed by bridge-reactor.sh
+
+Intent: Accurate [I01]. Purpose: [P-TBD].

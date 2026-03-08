@@ -106,3 +106,5 @@ Tasks stored in `tasks/<channel-name>.json` — managed exclusively by the scrip
 - Channel name = task namespace — tasks don't cross channels
 - Task IDs are auto-incremented, never reused
 - If no channel context, ask which project
+
+Intent: Reliable [I05]. Purpose: [P-TBD].

@@ -41,3 +41,5 @@ Script outputs JSON with `status`, `pushed`, `sha`, `changes`.
 - Includes memory/ and decisions/ subdirectories
 - Excludes skills (separate repo — use /skills-backup)
 - Do NOT re-implement — always use the script
+
+Intent: Recoverable [I15]. Purpose: [P-TBD].

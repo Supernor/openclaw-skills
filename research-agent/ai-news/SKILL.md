@@ -74,3 +74,5 @@ After each digest:
 - Did any previous "watch" items become actionable?
 - Did any source prove wrong on a previous claim? Update trust score.
 - Are new categories emerging? Note them in MEMORY.md.
+
+Intent: Informed [I18]. Purpose: [P-TBD].

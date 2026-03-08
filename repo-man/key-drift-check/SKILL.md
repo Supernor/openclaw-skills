@@ -38,3 +38,5 @@ The script outputs JSON with `status`, `found`, `missing`, `extra` fields.
 ## Notes
 - Script checks both /app/.env and runtime env vars (provider keys injected via docker-compose)
 - Do NOT re-implement the check logic — always use the script
+
+Intent: Secure [I16]. Purpose: [P-TBD].

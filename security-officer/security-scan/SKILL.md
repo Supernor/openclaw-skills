@@ -42,3 +42,5 @@ oc security audit --deep --json && oc secrets audit --json
 - Run after every new agent is added
 - Run after config changes that touch auth or channels
 - Never auto-fix without reviewing findings first (use --json, then decide)
+
+Intent: Secure [I16]. Purpose: [P-TBD].

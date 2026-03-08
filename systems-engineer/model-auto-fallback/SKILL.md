@@ -53,3 +53,5 @@ Removed emergency models: <list>
 - Never remove original configured models — only add/remove emergency ones
 - Script backs up openclaw.json before modifying
 - Do NOT restart automatically — only Robert or explicit instruction
+
+Intent: Resilient [I08]. Purpose: [P-TBD].

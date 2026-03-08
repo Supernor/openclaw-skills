@@ -54,3 +54,5 @@ Write current line count to cursor file.
 - Provider name bold and first
 - Relative times ("5m ago") not ISO
 - Create threads on critical alerts
+
+Intent: Resilient [I08]. Purpose: [P-TBD].

@@ -126,3 +126,5 @@ STATUS: success
 - If channel has no decisions or tasks, say "Empty — use /decide or /task add to start"
 - Use relative times ("2h ago", "3d ago") not ISO timestamps
 - Keep output compact — this is a glance view
+
+Intent: Observable [I13]. Purpose: [P-TBD].

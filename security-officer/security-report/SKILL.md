@@ -43,3 +43,5 @@ Produce a summary of the current security posture.
 ```
 
 Store as Chartroom reading: `report-security-posture`
+
+Intent: Secure [I16]. Purpose: [P-TBD].

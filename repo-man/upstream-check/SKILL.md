@@ -88,3 +88,5 @@ When run via `/upstream-check`, reply directly to the user instead of posting to
 
 Last check: 2026-03-01T22:26:11Z
 ```
+
+Intent: Informed [I18]. Purpose: [P-TBD].

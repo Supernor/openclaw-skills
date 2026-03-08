@@ -48,3 +48,5 @@ oc memory index --force         # Reindex
 - Search before creating — don't duplicate
 - Importance: 1.0 = critical (safety, security), 0.9 = important, 0.8 = standard, 0.5 = nice-to-know
 - Charts are durable knowledge, not session state
+
+Intent: Informed [I18]. Purpose: [P-TBD].

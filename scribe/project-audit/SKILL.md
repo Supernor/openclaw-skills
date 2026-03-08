@@ -180,3 +180,5 @@ Context audit should run monthly (add to Scribe's audit schedule) or on-demand a
 - Include approximate message timestamps or context so the user can find the relevant discussion
 - **Signal Priority:** RACP and Security risks should be listed at the top of the report.
 - **Context audit:** Report token counts, not character counts — tokens are the currency that matters
+
+Intent: Coherent [I19]. Purpose: [P-TBD].

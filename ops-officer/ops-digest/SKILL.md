@@ -116,3 +116,5 @@ Build a single card with these sections:
 ## Skip conditions
 
 Never skip — always produce a digest even if everything is green. "All clear" is valuable information.
+
+Intent: Informed [I18]. Purpose: [P-TBD].

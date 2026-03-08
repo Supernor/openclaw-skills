@@ -49,3 +49,5 @@ Generate a website mockup from palette + content + goals.
 
 ## Output
 Visual mockup + palette summary + revision notes
+
+Intent: Competent [I03]. Purpose: [P-TBD].

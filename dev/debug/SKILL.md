@@ -66,3 +66,5 @@ VERIFY: <how to confirm the fix holds>
 - One fix per issue — do not bundle unrelated changes
 - After 3 failed hypotheses, escalate with findings
 - Never apply "shotgun debugging" — changing random things hoping something works
+
+Intent: Accurate [I01]. Purpose: [P-TBD].

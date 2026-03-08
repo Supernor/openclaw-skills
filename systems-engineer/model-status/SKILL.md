@@ -73,3 +73,5 @@ If `brief` argument: one line per provider, e.g. `google: ✅ | anthropic: ❌ b
 ## Notes
 - Read-only. Does not modify any files.
 - Uses data from model-health-monitor hook. If stale (>2min), warn user.
+
+Intent: Observable [I13]. Purpose: [P-TBD].

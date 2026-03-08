@@ -56,3 +56,5 @@ If a filter word is provided, only show decisions matching that status.
 - Group by status, ordered: DONE → DECIDED-NOT-DONE → UNDECIDED → SAVE-FOR-LATER → WONT-WORK
 - Keep original decision numbers (don't renumber when filtering)
 - Use Discord-friendly formatting (no markdown tables, use bold + lists)
+
+Intent: Informed [I18]. Purpose: [P-TBD].

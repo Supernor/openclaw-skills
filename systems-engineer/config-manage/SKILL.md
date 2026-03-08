@@ -57,3 +57,5 @@ oc agents bind --help                        # Routing bindings
 - Back up config before destructive changes: `cp /root/.openclaw/openclaw.json /root/.openclaw/openclaw.json.bak.$(date +%s)`
 - Use dead man's switch for risky changes (see schedule-task skill)
 - Config changes require: `docker compose restart openclaw-gateway`
+
+Intent: Coherent [I19]. Purpose: [P-TBD].

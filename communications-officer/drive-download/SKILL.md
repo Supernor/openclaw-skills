@@ -14,3 +14,5 @@ When retrieving files from Drive for processing or delivery.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log download via log-event
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

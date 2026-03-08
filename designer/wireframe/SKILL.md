@@ -34,3 +34,5 @@ Quick low-fidelity layout sketch. Structure, not style.
 
 ## Output
 SVG wireframe image showing page structure and content hierarchy
+
+Intent: Competent [I03]. Purpose: [P-TBD].

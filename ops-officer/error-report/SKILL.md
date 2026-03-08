@@ -57,3 +57,5 @@ If no errors found: `[Repo-Man] error-report: All clear. No WARN+ entries found.
 - This skill does not modify any logs. Read-only.
 - Gateway log has the most data — always query it first
 - Use scripts, don't grep docker logs manually
+
+Intent: Observable [I13]. Purpose: [P-TBD].

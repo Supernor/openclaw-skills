@@ -14,3 +14,5 @@ When scheduling a new event, meeting, or reminder.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log event creation via log-event
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

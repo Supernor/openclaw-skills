@@ -45,3 +45,5 @@ Or from memory:
 - Keep messages concise — these go to a real person's phone
 - For bulk status, use #ops-changelog not Robert's DM
 - This is for outbound messages only — agents handle inbound via their normal flow
+
+Intent: Connected [I10]. Purpose: [P-TBD].

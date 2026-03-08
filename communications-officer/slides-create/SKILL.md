@@ -22,3 +22,5 @@ When creating a new presentation or modifying an existing one — financial aid 
 
 ## Logging
 - Log creation via log-event with presentation ID and slide count
+
+Intent: Competent [I03]. Purpose: [P-TBD].

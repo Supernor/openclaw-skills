@@ -37,3 +37,5 @@ Script outputs JSON with `status`, `key_count`, `pushed`.
 - Script includes provider keys from runtime env vars (docker-compose injected)
 - Has built-in safety check — aborts if any values leak into template
 - Do NOT re-implement — always use the script
+
+Intent: Recoverable [I15]. Purpose: [P-TBD].

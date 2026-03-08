@@ -23,3 +23,5 @@ Levels: INFO, WARN, ERROR, FATAL
 - Script handles all log formatting, file I/O, and GitHub push
 - Do NOT write to logs manually — always use this script
 - Never truncate logs
+
+Intent: Observable [I13]. Purpose: [P-TBD].

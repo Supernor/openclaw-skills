@@ -52,3 +52,5 @@ browser upload
 - Never submit payment forms without explicit human approval
 - Never change account settings without explicit task instructions
 - Screenshot before and after destructive actions
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

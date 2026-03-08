@@ -12,3 +12,5 @@ When sending ops notifications, alerts, or cross-channel messages from automatio
 3. Confirm message posted
 ## Logging
 - Log via log-event
+
+Intent: Connected [I10]. Purpose: [P-TBD].

@@ -32,3 +32,5 @@ tags: [backup, skills, github]
 - Quartermaster workspace skills (decide, audit, etc.)
 - Hooks (~/.openclaw/hooks/)
 - Scripts (~/.openclaw/scripts/)
+
+Intent: Recoverable [I15]. Purpose: [P-TBD].

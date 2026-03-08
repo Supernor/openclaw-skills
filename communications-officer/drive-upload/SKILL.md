@@ -14,3 +14,5 @@ When uploading files to Drive — reports, outputs, deliverables.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log upload via log-event with file details
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

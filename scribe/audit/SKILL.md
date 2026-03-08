@@ -27,3 +27,4 @@ Pinned-log (minimal)
 
 References
 - LIMITS.md backup status: /LIMITS.md (backup)
+Intent: Coherent [I19]. Purpose: [P-TBD].

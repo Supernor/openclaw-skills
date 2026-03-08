@@ -14,3 +14,5 @@ When modifying time, title, location, or details of an existing event.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log event update via log-event
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

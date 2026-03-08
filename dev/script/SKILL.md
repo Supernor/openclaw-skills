@@ -65,3 +65,5 @@ VERIFY: <test command>
 - Always test before reporting done
 - Runtime installs vanish on rebuild — flag if the script needs packages
 - Prefer bash for simple automation, node for complex logic
+
+Intent: Competent [I03]. Purpose: [P-TBD].

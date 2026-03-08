@@ -37,3 +37,5 @@ Use web_fetch tool for direct downloads, browser for pages that require interact
 
 ## After Download
 Report the on-site file path back to the requesting agent. If the file is an image or PDF that should be indexed in the Chartroom, note this in the result so the intake pipeline can process it.
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

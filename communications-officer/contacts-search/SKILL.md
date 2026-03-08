@@ -15,3 +15,5 @@ When looking up contact information — phone, email, address.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log via log-event
+
+Intent: Connected [I10]. Purpose: [P-TBD].

@@ -86,3 +86,5 @@ Handoff Status for <task-id>:
 - **Read-only** — never modify outbox files, ledger, or JSONL
 - Flag orphaned handoffs (age > 5 min) as urgent
 - Escalate to Captain if handoff chain is broken for multiple tasks
+
+Intent: Connected [I10]. Purpose: [P-TBD].

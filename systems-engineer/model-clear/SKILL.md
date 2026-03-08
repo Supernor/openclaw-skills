@@ -41,3 +41,5 @@ If `billingWarning` is true, add:
 
 ## Notes
 - The model-health-monitor hook will re-evaluate on next poll (within 30s).
+
+Intent: Resilient [I08]. Purpose: [P-TBD].

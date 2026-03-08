@@ -87,3 +87,5 @@ Head to #<name> to start working.
 - Always initialize the decision tracker
 - If bot can't create channels, fall back to manual instructions
 - Log the project creation as a decision in the new channel: `#1 | Project created | DONE | — | <date>`
+
+Intent: Competent [I03]. Purpose: [P-TBD].

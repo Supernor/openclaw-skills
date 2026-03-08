@@ -52,3 +52,5 @@ STATUS: <clean | issues-found | critical-issues>
 - Suggest fixes, not just problems
 - Respect existing conventions — do not propose rewrites for style preference
 - Be specific: file, line number, what is wrong, what to do instead
+
+Intent: Accurate [I01]. Purpose: [P-TBD].

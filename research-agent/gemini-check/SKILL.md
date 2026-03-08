@@ -41,3 +41,5 @@ Reference MEMORY.md token spend log.
 - New capabilities: [any from recent ai-news]
 - Recommendation: [any config changes suggested]
 ```
+
+Intent: Observable [I13]. Purpose: [P-TBD].

@@ -75,3 +75,5 @@ If status is "ok" and no warnings, use a single line:
 - Run nightly via cron, not on heartbeat
 - If delivery queue has failures, investigate with: `cat ~/.openclaw/delivery-queue/failed/*.json | jq .`
 - If cron failures detected, check: `cat ~/.openclaw/cron/runs/*.jsonl | jq -r 'select(.status=="error")'`
+
+Intent: Observable [I13]. Purpose: [P-TBD].

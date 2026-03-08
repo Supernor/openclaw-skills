@@ -51,3 +51,5 @@ Create visual diagrams from descriptions using Mermaid.
 
 ## Output
 Rendered diagram image + Mermaid source code for future editing
+
+Intent: Competent [I03]. Purpose: [P-TBD].

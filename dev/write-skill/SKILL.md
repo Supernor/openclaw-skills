@@ -74,3 +74,5 @@ VERIFY: skill-router.sh route "<keywords>" returns <name>
 - Skills are text instructions, not code libraries
 - Keep skill.md under 200 lines — split complex skills into sub-skills
 - Always rebuild the router index after creating/modifying skills
+
+Intent: Growing [I09]. Purpose: [P-TBD].

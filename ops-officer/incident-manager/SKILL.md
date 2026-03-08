@@ -48,3 +48,5 @@ Include open incidents in the dashboard output.
 - Robert gets GitHub notification emails for free — no Discord token cost
 - Labels are auto-created on first use by `gh issue create`
 - Do NOT create issues manually — always use the script for consistency
+
+Intent: Resilient [I08]. Purpose: [P-TBD].

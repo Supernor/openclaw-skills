@@ -15,3 +15,5 @@ When reading the content of a Google Doc for processing or summarization.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log via log-event
+
+Intent: Informed [I18]. Purpose: [P-TBD].

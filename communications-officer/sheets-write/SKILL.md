@@ -15,3 +15,5 @@ When writing new data or appending rows to a spreadsheet.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log write action via log-event with row count
+
+Intent: Competent [I03]. Purpose: [P-TBD].

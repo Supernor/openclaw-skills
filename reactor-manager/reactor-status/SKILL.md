@@ -75,3 +75,5 @@ Reactor Status:
 - Open questions: N
 - Lockstep: OK / [mismatches]
 ```
+
+Intent: Observable [I13]. Purpose: [P-TBD].

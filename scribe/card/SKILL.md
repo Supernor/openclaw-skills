@@ -89,3 +89,5 @@ Return formatted card to Captain for Relay rendering. Keep it compact — this i
 - Known issues block only appears when openCount > 0
 - Use relative times ("2h ago") not ISO timestamps where possible
 - **Always post result in the current channel** — even when querying a different channel
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

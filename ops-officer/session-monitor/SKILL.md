@@ -56,3 +56,5 @@ Check agent context capacity (cognitive load) across all agents.
 
 ## Output
 Table: agent name, load %, state, model, peak session key.
+
+Intent: Aware [I12]. Purpose: [P-TBD].

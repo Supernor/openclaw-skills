@@ -43,3 +43,5 @@ Pull colors from a source and assign roles.
 - Hex values with role assignments
 - CSS `:root` block
 - Visual swatch
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

@@ -55,3 +55,5 @@ Perform a focused security audit on a specific area.
 
 ## Output
 Use the reporting format from SOUL.md. Every finding must include severity, verification status, and a recommended action for when the Security Officer reaches the appropriate trust level.
+
+Intent: Secure [I16]. Purpose: [P-TBD].

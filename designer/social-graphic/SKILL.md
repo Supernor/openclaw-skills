@@ -40,3 +40,5 @@ Generate social media graphics sized for specific platforms.
 
 ## Output
 Platform-sized graphic image ready for posting
+
+Intent: Competent [I03]. Purpose: [P-TBD].

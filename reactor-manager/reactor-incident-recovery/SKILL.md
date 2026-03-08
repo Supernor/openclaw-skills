@@ -110,3 +110,5 @@ Incident Report: <task-id>
 - Always search Chartroom (`memory_recall error reactor`) before diagnosing from scratch
 
 Your role is diagnosis + recommendation. Execution belongs to Dev (tasks), Repo-Man (infra), or ops (service restarts).
+
+Intent: Recoverable [I15]. Purpose: [P-TBD].

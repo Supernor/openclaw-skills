@@ -16,3 +16,5 @@ ONLY when requesting agent has explicit "send" authorization. Default to gmail-d
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log every sent email via log-event with full details
+
+Intent: Connected [I10]. Purpose: [P-TBD].

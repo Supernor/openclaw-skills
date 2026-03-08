@@ -50,3 +50,5 @@ Traffic light colors: Green `5763719` / Yellow `16776960` / Red `15548997`
 ```bash
 /home/node/.openclaw/scripts/log-event.sh INFO dashboard-update "Updated: <green|yellow|red>"
 ```
+
+Intent: Observable [I13]. Purpose: [P-TBD].

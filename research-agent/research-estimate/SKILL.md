@@ -120,3 +120,5 @@ Estimated: ~3,000 tokens in, ~10,000 tokens out, ~5,000 thinking (Pro needed)
 Per-run cost: $0.06 (Pro)
 Verdict: Over $0.05. Execute but flag cost.
 ```
+
+Intent: Efficient [I06]. Purpose: [P-TBD].

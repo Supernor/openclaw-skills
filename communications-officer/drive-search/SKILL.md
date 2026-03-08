@@ -15,3 +15,5 @@ When finding files, folders, or documents in Google Drive.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log via log-event
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

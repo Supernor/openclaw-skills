@@ -307,3 +307,5 @@ Archived plans move to `~/.openclaw/plans/archive/`.
 - Update card on every step completion — Robert should see live progress
 - Research findings logged before plan is built — show your work
 - If no plan-id specified on sub-commands, use the most recent active plan
+
+Intent: Competent [I03]. Purpose: [P-TBD].

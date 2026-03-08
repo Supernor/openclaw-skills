@@ -14,3 +14,5 @@ When checking schedule, upcoming events, or availability.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log via log-event
+
+Intent: Responsive [I04]. Purpose: [P-TBD].

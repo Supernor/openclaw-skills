@@ -14,3 +14,5 @@ When reading spreadsheet data — full sheet or specific range.
 - Route through correct Google account based on initiating agent/human
 ## Logging
 - Log via log-event
+
+Intent: Competent [I03]. Purpose: [P-TBD].

@@ -33,3 +33,5 @@ tags: [decisions, audit, github]
 ## Rules
 - Decisions are never deleted or modified after push. Append only.
 - If Robert asks to "undo" a decision: log a new entry noting the reversal, never edit the original.
+
+Intent: Informed [I18]. Purpose: [P-TBD].

@@ -91,3 +91,5 @@ The Reactor operates under a confidence-based autonomy policy:
 - "Write a new skill for the Scribe agent that summarizes GitHub PRs"
 - "Fix the Discord embed formatting in the relay workspace"
 - "Create a deployment script for static sites"
+
+Intent: Resourceful [I07]. Purpose: [P-TBD].

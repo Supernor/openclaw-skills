@@ -71,3 +71,5 @@ DETAILS: <N> decisions finalized, <M> UNDECIDED marked DECIDED-NOT-DONE, <K> SAV
 - SAVE-FOR-LATER items are preserved as-is
 - If bot lacks Manage Channels, give Robert manual instructions via Relay
 - Log the archive as a decision: `#<next> | Project archived | DONE | <date>`
+
+Intent: Recoverable [I15]. Purpose: [P-TBD].
