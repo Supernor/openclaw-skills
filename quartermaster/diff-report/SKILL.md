@@ -4,6 +4,7 @@ description: Produce a delta report since a timestamp, covering new charts, conf
 version: 1.0.0
 author: quartermaster
 tags: [delta, report, changes, timeline]
+intent: Observable [I04]
 ---
 
 Generate a timestamped delta report.

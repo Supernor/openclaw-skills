@@ -4,6 +4,7 @@ description: Batch verify, update, and archive stale charts with consistency che
 version: 1.0.0
 author: quartermaster
 tags: [chartroom, maintenance, batch, hygiene]
+intent: Efficient [I06]
 ---
 
 Run batch chart maintenance.

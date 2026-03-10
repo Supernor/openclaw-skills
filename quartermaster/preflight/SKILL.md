@@ -4,6 +4,7 @@ description: Build pre-session context showing what changed since last session, 
 version: 1.0.0
 author: quartermaster
 tags: [preflight, delta, session, context]
+intent: Observable [I04]
 ---
 
 Compute a preflight delta since last session.

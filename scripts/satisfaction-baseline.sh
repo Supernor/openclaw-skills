@@ -3,7 +3,8 @@
 echo -e "AGENT NAME\tSCORE\tFLAGS"
 echo -e "----------\t-----\t-----"
 
-for agent_dir in /root/.openclaw/workspace-spec-*/; do
+for agent_dir in /root/.openclaw/workspace-spec-*/ /root/.openclaw/workspace-main/ /root/.openclaw/workspace-relay/ /root/.openclaw/workspace-eoin/; do
+    [ -d "$agent_dir" ] || continue
     AGENT_NAME=$(basename "$(echo "$agent_dir" | sed 's/\/$//')")
     SCORE=0
     FLAGS=""

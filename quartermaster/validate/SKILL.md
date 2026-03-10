@@ -4,6 +4,7 @@ description: Pre-validate config or code changes using syntax checks and dry-run
 version: 1.0.0
 author: quartermaster
 tags: [validate, dry-run, safety, config]
+intent: Efficient [I06]
 ---
 
 Run validation before applying changes.

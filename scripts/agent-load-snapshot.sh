@@ -13,7 +13,7 @@ set -eo pipefail
 
 MODE="${1:-table}"
 COMPOSE_DIR="/root/openclaw"
-AGENTS=("relay" "main" "spec-projects" "spec-github" "spec-dev" "spec-reactor" "spec-browser" "spec-research" "spec-security" "spec-ops" "spec-design" "spec-systems" "spec-comms")
+AGENTS=("relay" "main" "spec-projects" "spec-github" "spec-dev" "spec-reactor" "spec-browser" "spec-research" "spec-security" "spec-ops" "spec-design" "spec-systems" "spec-comms" "spec-strategy" "spec-quartermaster" "spec-historian")
 OVERLOAD_THRESHOLD=85
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

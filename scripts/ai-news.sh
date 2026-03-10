@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ai-news.sh — Daily AI news digest via Research agent
-# Intent: Informed [I14], Resourceful [I07].
+# Intent: Informed, Resourceful.
 # Runs daily at 8:30am UTC (after transcript auto-ingest at 8am).
 # Uses the Research agent's ai-news skill with Gemini web search.
 #
@@ -68,9 +68,14 @@ else
   EXIT_CODE=$?
   log "ERROR: oc agent exited with code $EXIT_CODE"
   log "Output: ${OUTPUT:0:500}"
+  # Mark output as tainted
+  output-taint mark --agent "$AGENT" --reason "error" --output "${OUTPUT:0:500}" --source ai-news 2>/dev/null || true
   echo "{\"ts\":\"$(ts)\",\"source\":\"ai-news\",\"status\":\"error\",\"exit_code\":$EXIT_CODE}" >> "$HEALTH_DIR/buffer.jsonl"
   exit 1
 fi
+
+# Auto-detect taint in successful output (rate limits, partial, etc.)
+echo "${OUTPUT:0:500}" | output-taint auto --agent "$AGENT" --source ai-news 2>/dev/null || true
 
 # Write health event
 echo "{\"ts\":\"$(ts)\",\"source\":\"ai-news\",\"status\":\"ok\",\"chars\":${#OUTPUT}}" >> "$HEALTH_DIR/buffer.jsonl"

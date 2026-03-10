@@ -117,12 +117,16 @@ SCRIPT
     [ -z "$importance" ] && importance=$(echo "$existing" | jq -r '.importance // 0.8' 2>/dev/null || echo "0.8")
   fi
 
+  # Sanitize ID for delete query
+  local safe_id
+  safe_id=$(echo "$id" | tr -cd 'a-zA-Z0-9-')
+
   # Delete old entry
   node --input-type=module <<SCRIPT 2>/dev/null || true
 import lancedb from '${LDB_MOD}';
 const db = await lancedb.connect('${LDB_PATH}');
 const table = await db.openTable('memories');
-await table.delete('id = "${id}"');
+await table.delete('id = "${safe_id}"');
 SCRIPT
 
   # Add updated entry
@@ -230,7 +234,7 @@ cmd_help() {
 `/chart list [limit]` — List charts (default 20)
 `/chart stale` — Scan for stale entries
 
-**Categories:** reading, procedure, course, issue, error, agent, vision, model, architecture
+**Categories:** agent, architecture, course, decision, entity, error, fact, governance, issue, model, other, policy, preference, procedure, project, reading, skill, vision
 **Importance:** 1.0=critical, 0.9=important, 0.8=standard, 0.5=nice-to-know
 
 **Examples:**

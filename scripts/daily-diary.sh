@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # daily-diary.sh — Trigger Historian to write and post the daily diary
-# Intent: Informed [I18], Coherent [I14].
+# Intent: Informed, Coherent.
 # Runs daily at 11pm UTC. DO NOT install cron automatically.
 # Cron line (when ready): 0 23 * * * /root/.openclaw/scripts/daily-diary.sh
 #
@@ -78,11 +78,16 @@ else
   EXIT_CODE=$?
   log "ERROR: oc agent exited with code $EXIT_CODE"
   log "Output: ${OUTPUT:0:500}"
+  # Mark output as tainted
+  output-taint mark --agent "$AGENT" --reason "error" --output "${OUTPUT:0:500}" --source daily-diary 2>/dev/null || true
   # Log to health buffer for monitoring
   mkdir -p /root/.openclaw/health
   echo "{\"ts\":\"$(ts)\",\"source\":\"daily-diary\",\"status\":\"error\",\"exit_code\":$EXIT_CODE}" >> /root/.openclaw/health/buffer.jsonl 2>/dev/null || true
   exit 1
 fi
+
+# Auto-detect taint in successful output (rate limits, partial, etc.)
+echo "${OUTPUT:0:500}" | output-taint auto --agent "$AGENT" --source daily-diary 2>/dev/null || true
 
 # Log success to health buffer
 mkdir -p /root/.openclaw/health

@@ -4,6 +4,7 @@ description: Generate a concise system situation report (health, agent status, s
 version: 1.0.0
 author: quartermaster
 tags: [sitrep, briefing, health, reactor]
+intent: Observable [I04]
 ---
 
 Generate a current situation report and write it to `/root/.openclaw/sitrep.md`.

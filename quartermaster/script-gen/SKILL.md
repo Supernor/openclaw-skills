@@ -4,6 +4,7 @@ description: Generate Python or bash scripts from natural-language specs with pr
 version: 1.0.0
 author: quartermaster
 tags: [script, automation, python, bash]
+intent: Efficient [I06]
 ---
 
 Translate user intent into a runnable script.
