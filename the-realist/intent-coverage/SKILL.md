@@ -34,3 +34,5 @@ Recommendations: [specific actions to close gaps]
 ## MCP Tools Used
 - `intent_audit` — fleet intent alignment scan
 - `satisfaction_scores` — current measurement data
+
+intent: Coherent [I09], Trusted [I11]

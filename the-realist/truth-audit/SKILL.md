@@ -38,3 +38,5 @@ Prior findings: [chart IDs if relevant]
 - `chart_search` — prior findings lookup
 - `issue_log` — record failures
 - `system_status` — supplementary state data
+
+intent: Trusted [I11], Coherent [I09]

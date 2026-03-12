@@ -103,3 +103,5 @@ This skill reads from your memory files. To change what it checks:
 - Add items to `corinne-prefs.md` checklists
 - Update `USER.md` with new domain knowledge
 - The skill adapts automatically — no code changes needed
+
+intent: Responsive [I01], Informed [I07]

@@ -42,3 +42,5 @@ Recommended updates: [list of chart IDs + corrections]
 - `system_status` — current state verification
 - `reality_check` — claim verification
 - `workspace_freshness` — agent workspace state
+
+intent: Trusted [I11], Coherent [I09]

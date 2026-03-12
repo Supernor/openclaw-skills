@@ -50,3 +50,5 @@ SQLite DB at `/root/.openclaw/telegram-transcript.db`. Fed by:
 - "When was the last message?" → show --limit 1
 - "Was the chain test delivered?" → search "chain test"
 - "How many messages today?" → stats
+
+intent: Trusted [I11], Informed [I07]

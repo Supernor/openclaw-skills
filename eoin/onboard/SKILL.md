@@ -170,3 +170,5 @@ Once the basic onboarding is done, future skills take over:
 - `vision-capture` — PTV interview to define family purposes
 - `import-conversations` — Deep ChatGPT history processing
 - Day-to-day skills emerge from her actual usage patterns
+
+intent: Responsive [I01], Connected [I10]

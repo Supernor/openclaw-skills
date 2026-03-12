@@ -59,3 +59,5 @@ Recommendations:
 - `backbone_snapshot` — agent activity patterns
 - `chart_search` — tool selection history
 - `satisfaction_scores` — fleet health correlation
+
+intent: Efficient [I06], Trusted [I11]

@@ -132,3 +132,5 @@ Related Intents: [I## mapped by system, not shown to her]
 - Don't pre-fill goals from Robert's list — let her define independently
 - Don't skip validation with Robert — both owners shape the direction
 - Don't make this feel like a corporate planning session — it's a family conversation
+
+intent: Connected [I10], Understood [I02]

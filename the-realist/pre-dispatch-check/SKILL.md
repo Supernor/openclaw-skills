@@ -43,3 +43,5 @@ Proceed with standard approach — chart findings when complete.
 ## MCP Tools Used
 - `chart_search` — find relevant prior work
 - `chart_read` — read full chart details
+
+intent: Efficient [I06], Coherent [I09]

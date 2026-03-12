@@ -103,6 +103,8 @@ After reflecting back, connect what you learned to what you can do:
 - If something is unclear, ask. Don't guess at her meaning.
 - This is a CONVERSATION about her ideas, not a data pipeline
 
+intent: Responsive [I01], Connected [I10]
+
 ## Escalation
 
 If the import reveals topics that need Robert's input (system capabilities, technical requirements):
