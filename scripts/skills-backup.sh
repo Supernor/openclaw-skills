@@ -3,7 +3,7 @@
 # Outputs structured JSON. Zero LLM tokens needed.
 set -euo pipefail
 
-REPO_PATH="/home/node/.openclaw/workspace-spec-github/openclaw-skills"
+REPO_PATH="/home/node/.openclaw/repos/openclaw-skills"
 STATE_DIR="/home/node/.openclaw"
 
 if [ ! -d "$REPO_PATH/.git" ]; then

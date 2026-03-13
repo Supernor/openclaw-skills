@@ -12,7 +12,7 @@ EXIT_CODE="${4:-0}"
 STDERR="${5:-}"
 
 LOCAL_LOG="/home/node/.openclaw/workspace-spec-github/logs/repo-man.log"
-ERRORS_MD="/home/node/.openclaw/workspace-spec-github/openclaw-config/logs/ERRORS.md"
+ERRORS_MD="/home/node/.openclaw/repos/openclaw-config/logs/ERRORS.md"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 mkdir -p "$(dirname "$LOCAL_LOG")"
