@@ -63,6 +63,12 @@ SAT_SUMMARY=$(/root/.openclaw/scripts/satisfaction-summary.sh 2>/dev/null || ech
 CRON_FAILS=$(cron-health 2>/dev/null | grep -c "FAIL\|ERROR" || true)
 CRON_FAILS=${CRON_FAILS:-0}
 
+# Phase 5: Scope gate status
+SCOPE_TOTAL=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM scope" 2>/dev/null || echo "0")
+SCOPE_SYSTEM=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM scope WHERE scope_tier='system'" 2>/dev/null || echo "0")
+SCOPE_MODE=${SCOPE_GATE_MODE:-shadow}
+SCOPE_GATE_LOG_24H=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM gate_log WHERE ts > datetime('now', '-24 hours')" 2>/dev/null || echo "0")
+
 # --- Build sitrep ---
 
 cat > "$SITREP_FILE" << EOF
@@ -85,6 +91,10 @@ cat > "$SITREP_FILE" << EOF
 - ${IDEAS}
 
 ${SAT_SUMMARY}
+
+## Context Boundaries (Phase 5)
+- Scope entries: ${SCOPE_TOTAL} | System: ${SCOPE_SYSTEM} | Mode: ${SCOPE_MODE}
+- Gate log (24h): ${SCOPE_GATE_LOG_24H} evaluations
 
 ---
 Generated: ${NOW} (bash, zero token cost)

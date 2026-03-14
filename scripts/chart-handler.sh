@@ -17,8 +17,8 @@
 set -eo pipefail
 
 LDB_PATH="/home/node/.openclaw/memory/lancedb"
-LDB_MOD="/app/extensions/memory-lancedb/node_modules/@lancedb/lancedb/dist/index.js"
-OPENAI_MOD="/app/extensions/memory-lancedb/node_modules/openai/index.mjs"
+LDB_MOD="/home/node/.openclaw/extensions/memory-lancedb/node_modules/@lancedb/lancedb/dist/index.js"
+OPENAI_MOD="/home/node/.openclaw/extensions/memory-lancedb/node_modules/openai/index.mjs"
 
 # Fallback paths for host execution
 if [ ! -d "/app/extensions" ] && [ -d "/root/.openclaw" ]; then

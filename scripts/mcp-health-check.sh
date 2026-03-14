@@ -76,6 +76,15 @@ else
   [ "$status" = "HEALTHY" ] && status="DEGRADED"
 fi
 
+# Check 7: Scope gate health (Phase 5)
+scope_out=$(scope verify 2>&1 | tail -1)
+if echo "$scope_out" | grep -qi "ok\|pass\|healthy\|entries"; then
+  checks+=("{\"check\":\"scope_gate\",\"status\":\"ok\",\"detail\":\"$scope_out\"}")
+else
+  checks+=("{\"check\":\"scope_gate\",\"status\":\"warn\",\"detail\":\"Scope: ${scope_out:0:80}\"}")
+  [ "$status" = "HEALTHY" ] && status="DEGRADED"
+fi
+
 # Output
 if [ "$MODE" = "--json" ]; then
   echo "{\"timestamp\":\"$TIMESTAMP\",\"status\":\"$status\",\"checks\":[$(IFS=,; echo "${checks[*]}")]}"

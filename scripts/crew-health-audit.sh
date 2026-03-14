@@ -93,7 +93,7 @@ docker compose exec openclaw-gateway bash -c '
 echo ""
 echo "--- CHARTROOM ---"
 docker compose exec openclaw-gateway node -e "
-  import('/app/extensions/memory-lancedb/node_modules/@lancedb/lancedb/dist/index.js').then(async (m) => {
+  import('/home/node/.openclaw/extensions/memory-lancedb/node_modules/@lancedb/lancedb/dist/index.js').then(async (m) => {
     const db = await m.default.connect('/home/node/.openclaw/memory/lancedb');
     const t = await db.openTable('memories');
     const all = await t.query().limit(500).toArray();
