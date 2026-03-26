@@ -99,10 +99,10 @@ JQEOF
       TAGS_LINE=$(echo "$FRONT" | grep '^tags:' | head -1 || true)
       if echo "$TAGS_LINE" | grep -q '\['; then
         # Inline format: tags: [a, b, c]
-        TAGS=$(echo "$TAGS_LINE" | sed 's/^tags: *\[//;s/\].*//;s/, */,/g')
+        TAGS=$(echo "$TAGS_LINE" | sed 's/^tags: *\[//;s/\].*//;s/, */,/g' || true)
       else
         # Multi-line format: tags:\n  - a\n  - b
-        TAGS=$(echo "$FRONT" | sed -n '/^tags:/,/^[^ -]/p' | grep '^ *- ' | sed 's/^ *- *//;s/ *$//' | tr '\n' ',' | sed 's/,$//')
+        TAGS=$(echo "$FRONT" | sed -n '/^tags:/,/^[^ -]/p' | grep '^ *- ' | sed 's/^ *- *//;s/ *$//' | tr '\n' ',' | sed 's/,$//' || true)
       fi
 
       # Check if user-invocable

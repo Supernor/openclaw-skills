@@ -511,6 +511,19 @@ If you create or modify files, list the paths and a one-line summary of each cha
             discord_post ":: ${subject} — using ${tn} (#${tool_count})" &
             log "  TOOL: ${task_id} — ${tn} (#${tool_count})"
             sqlite3 "$LEDGER_DB" "INSERT INTO events (task_id, event_type, ts, payload_json) VALUES ('$task_id', 'tool_use', '$(date -u +%Y-%m-%dT%H:%M:%SZ)', '{\"tool\":\"$tn\",\"seq\":$tool_count}');" 2>/dev/null || true
+            # Emit progress event every 5 tools for Telegram notifications
+            if (( tool_count % 5 == 0 )); then
+              local progress_ts
+              progress_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              jq -n -c \
+                --arg taskId "$task_id" \
+                --arg subject "$subject" \
+                --arg timestamp "$progress_ts" \
+                --arg channelId "$channel_id" \
+                --argjson toolCount "$tool_count" \
+                '{taskId: $taskId, subject: $subject, status: "progress", timestamp: $timestamp, toolCount: $toolCount, relay_handoff_required: false, channelId: (if $channelId != "" then $channelId else null end)}' \
+                >> "$EVENTS_FILE" &
+            fi
           done
         fi
         ;;

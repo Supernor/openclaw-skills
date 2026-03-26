@@ -2,7 +2,7 @@
 # sitrep-cron.sh — Generate sitrep from CLI data (no agent call, zero token cost)
 # Intent: Efficient [I06]
 # Converted from agent-based to bash-template: 2026-03-10 (saves ~$8.70/mo)
-set -eo pipefail
+set -uo pipefail
 
 COMPOSE="docker compose -f /root/openclaw/docker-compose.yml"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -11,13 +11,22 @@ SITREP_FILE="/tmp/sitrep-staging.md"
 
 # --- Gather data (all bash/CLI, zero API cost) ---
 
-# Health check
-HEALTH=$($COMPOSE exec -T openclaw-gateway openclaw health 2>&1 | grep -v "level=warning" | head -3)
-TELEGRAM=$(echo "$HEALTH" | grep -oP 'Telegram: \K\S+' || echo "unknown")
-DISCORD=$(echo "$HEALTH" | grep -oP 'Discord: \K\S+' || echo "unknown")
+# Check if gateway is running first (determines fallback paths)
+GATEWAY_RUNNING=$(docker inspect --format '{{.State.Status}}' openclaw-openclaw-gateway-1 2>/dev/null || echo "missing")
 
-# Gateway errors (last 4h to match frequency)
-RECENT_ERRORS=$($COMPOSE logs --since=4h openclaw-gateway 2>&1 | grep -c "isError=true" || true)
+# Health check (with gateway-down fallback)
+if [ "$GATEWAY_RUNNING" = "running" ]; then
+  HEALTH=$($COMPOSE exec -T openclaw-gateway openclaw health 2>&1 | grep -v "level=warning" | head -3) || HEALTH="Gateway health check failed"
+  TELEGRAM=$(echo "$HEALTH" | grep -oP 'Telegram: \K\S+' || echo "unknown")
+  DISCORD=$(echo "$HEALTH" | grep -oP 'Discord: \K\S+' || echo "unknown")
+  RECENT_ERRORS=$($COMPOSE logs --since=4h openclaw-gateway 2>&1 | grep -c "isError=true" || true)
+else
+  # Fallback: read from stability-state.json
+  HEALTH="Gateway DOWN ($GATEWAY_RUNNING)"
+  TELEGRAM=$(python3 -c "import json; print(json.load(open('/root/.openclaw/stability-state.json')).get('telegram','unknown'))" 2>/dev/null || echo "unknown")
+  DISCORD=$(python3 -c "import json; print(json.load(open('/root/.openclaw/stability-state.json')).get('discord','unknown'))" 2>/dev/null || echo "unknown")
+  RECENT_ERRORS="N/A (gateway down)"
+fi
 RECENT_ERRORS=${RECENT_ERRORS:-0}
 
 # Chart count
@@ -100,8 +109,13 @@ ${SAT_SUMMARY}
 Generated: ${NOW} (bash, zero token cost)
 EOF
 
-# Copy into container
-docker cp "$SITREP_FILE" "$($COMPOSE ps -q openclaw-gateway)":/home/node/.openclaw/sitrep.md 2>/dev/null
+# Always save to host (survives gateway restarts)
+cp "$SITREP_FILE" /root/.openclaw/sitrep.md
+
+# Copy into container if running
+if [ "$GATEWAY_RUNNING" = "running" ]; then
+  docker cp "$SITREP_FILE" "$($COMPOSE ps -q openclaw-gateway)":/home/node/.openclaw/sitrep.md 2>/dev/null || true
+fi
 rm -f "$SITREP_FILE"
 
-echo "${NOW} sitrep generated (bash)"
+echo "${NOW} sitrep generated (bash, gateway: $GATEWAY_RUNNING)"

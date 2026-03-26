@@ -1,53 +1,43 @@
 ---
 name: research
-description: Deep research on a topic using Gemini search and multimodal capabilities
-tags: [research, gemini, search, analysis, multimodal]
-version: 1.0.0
+description: Deep research on a topic using web search and analysis capabilities
+tags: [research, search, analysis, web]
+version: 2.0.0
 ---
 
 # Research
 
-Conduct deep research on a topic using Gemini's unique capabilities.
+Conduct deep research on a topic. Research agent owns all web search for the fleet.
 
 ## When to use
 - "Research this topic"
 - "What are the current best practices for X?"
 - "Find out about this company/tool/service"
-- "Analyze this image/PDF/video"
 - "Fact-check this claim"
+- Any agent needing web search routes through Research via Captain
 
-## How to use
-
-### Web-grounded research
-Use Gemini with grounding to search the web and provide cited results.
-
-### Multimodal analysis
-Send images, PDFs, or YouTube URLs to Gemini for analysis.
-
-### Process
+## Process
 1. Search Chartroom first — we may already know this
 2. Formulate a clear research question
-3. **RUN research-estimate FIRST** — mandatory cost gate before any Gemini call
+3. **RUN research-estimate FIRST** — mandatory cost gate
 4. If estimate is over $0.50: STOP, send approval choices to human via Captain/Relay
-5. If approved or under threshold: use Gemini Flash for initial broad search
-6. Use Gemini Pro only if deeper reasoning is needed
-7. Verify key claims across multiple sources
-8. Structure findings: what we learned, confidence level, sources, impact on us
-9. Report actual token usage and cost in the result
+5. For web search: use the `web-search` skill (queues Gemini CLI on host, free tier primary, paid Flash Lite failover)
+6. Verify key claims across multiple sources
+7. Structure findings: what we learned, confidence level, sources, impact on us
+8. Report results back to the requesting agent and/or user via Captain/Relay
 
 ## Status Reporting
 - On start: "Researching [topic] via [Gemini search/multimodal/etc]"
 - On complete: Structured findings + sources + confidence + token cost
 - On failure: What broke + token cost of failed attempt
 
-## Token Discipline
-- **research-estimate skill is MANDATORY before every Gemini API call**
+## Cost Discipline
+- **research-estimate is MANDATORY before expensive operations**
+- Web search via `web-search` skill: free (Gemini CLI free tier) or pennies (paid Flash Lite failover)
 - Under $0.05: execute, report cost
 - $0.05-$0.50: execute, flag cost prominently
 - Over $0.50: DO NOT execute — send choices to human via Relay buttons
-- For scheduled tasks (like daily news): project daily/monthly cost in estimate
-- Track actual spend in workspace MEMORY.md
-- Prefer Flash over Pro unless reasoning depth requires it
+- Track spend in workspace MEMORY.md
 
 ## Output Format
 ```

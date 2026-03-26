@@ -55,7 +55,52 @@ EXPIRED=$(_exec sqlite3 "$OPS_DB" "
 " 2>/dev/null) || EXPIRED=0
 [ "$EXPIRED" -gt 0 ] && echo "[$(ts)] Cleaned $EXPIRED expired agent_results" >> "$LOG"
 
-TOTAL=$((STUCK_JOBS + STUCK_HANDOFFS + STUCK_TASKS + EXPIRED))
+# 5. Cancel truth-gate retry chains (Fix: Fix: Fix:... blocked tasks)
+HOST_OPS_DB="/root/.openclaw/ops.db"
+RETRY_CHAINS=$(sqlite3 "$HOST_OPS_DB" "
+  UPDATE tasks SET status = 'cancelled',
+    outcome = COALESCE(outcome,'') || ' [auto-cancelled: retry chain depth exceeded]',
+    updated_at = datetime('now')
+  WHERE status = 'blocked' AND task LIKE 'Fix: Fix: Fix:%';
+  SELECT changes();
+" 2>/dev/null) || RETRY_CHAINS=0
+[ "$RETRY_CHAINS" -gt 0 ] && echo "[$(ts)] Cancelled $RETRY_CHAINS truth-gate retry chains" >> "$LOG"
+
+# 6. Age-out blocked tasks older than 24h (stuck beyond recovery)
+AGED_BLOCKED=$(sqlite3 "$HOST_OPS_DB" "
+  UPDATE tasks SET status = 'cancelled',
+    outcome = COALESCE(outcome,'') || ' [auto-cancelled: blocked >24h]',
+    updated_at = datetime('now')
+  WHERE status = 'blocked'
+  AND updated_at < datetime('now', '-24 hours');
+  SELECT changes();
+" 2>/dev/null) || AGED_BLOCKED=0
+[ "$AGED_BLOCKED" -gt 0 ] && echo "[$(ts)] Aged out $AGED_BLOCKED blocked tasks (>24h)" >> "$LOG"
+
+# 7. Unblock tasks whose dependencies were cancelled or failed (dead dependency chains)
+UNBLOCKED=$(sqlite3 "$HOST_OPS_DB" "
+  UPDATE tasks SET blocked_by = NULL, updated_at = datetime('now')
+  WHERE status = 'pending'
+  AND blocked_by IS NOT NULL
+  AND blocked_by IN (SELECT CAST(id AS TEXT) FROM tasks WHERE status IN ('cancelled','failed'));
+  SELECT changes();
+" 2>/dev/null) || UNBLOCKED=0
+[ "$UNBLOCKED" -gt 0 ] && echo "[$(ts)] Unblocked $UNBLOCKED tasks with cancelled/failed dependencies" >> "$LOG"
+
+# 8. Auto-answer expired feedback questions with first option (interview pattern)
+EXPIRED_FEEDBACK=$(sqlite3 "$HOST_OPS_DB" "
+  UPDATE bearings_queue SET status='expired',
+    response_value = json_extract(options, '$[0]'),
+    answered_at = datetime('now'),
+    approved_by = 'auto-timeout'
+  WHERE status = 'pending'
+  AND expires_at IS NOT NULL
+  AND expires_at < datetime('now');
+  SELECT changes();
+" 2>/dev/null) || EXPIRED_FEEDBACK=0
+[ "$EXPIRED_FEEDBACK" -gt 0 ] && echo "[$(ts)] Auto-answered $EXPIRED_FEEDBACK expired feedback questions" >> "$LOG"
+
+TOTAL=$((STUCK_JOBS + STUCK_HANDOFFS + STUCK_TASKS + EXPIRED + RETRY_CHAINS + AGED_BLOCKED + EXPIRED_FEEDBACK))
 if [ "$TOTAL" -gt 0 ]; then
   echo "[$(ts)] Reaper total actions: $TOTAL" >> "$LOG"
   mkdir -p /root/.openclaw/health

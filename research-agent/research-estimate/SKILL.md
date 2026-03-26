@@ -16,45 +16,32 @@ Estimate the cost of a research request BEFORE executing it. If over threshold, 
 
 ## Cost Estimation Method
 
-### Step 1: Count input tokens (free, no API call)
-Use the Gemini `countTokens` endpoint to measure the prompt:
-```
-POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:countTokens
-Body: { contents: [{ parts: [{ text: "<the research prompt>" }] }] }
-```
-This returns `totalTokens` without consuming any quota.
+### Step 1: Determine search path
+- **Web search** → `web-search` skill (ops.db task). Free tier primary, paid Flash Lite failover. Cost: $0 or ~$0.001 per search.
+- **Deep analysis** → Gemini API direct call. Cost varies by model.
 
 ### Step 2: Estimate output tokens
 Based on research type:
-- Simple factual query: ~500 output tokens
-- News summary (daily digest): ~2,000 output tokens
-- Deep research with citations: ~4,000 output tokens
-- Multi-source analysis: ~6,000 output tokens
-- Comprehensive report: ~10,000+ output tokens
+- Simple web search: ~$0 (free tier) or ~$0.001 (paid failover)
+- News summary (daily digest): ~$0.001
+- Deep research with citations: ~$0.005
+- Multi-source analysis: ~$0.01
+- Comprehensive report: ~$0.05+
 
 ### Step 3: Calculate cost
-Current Gemini pricing (update as pricing changes):
+Current pricing (update as pricing changes):
 
-**Gemini 3 Flash (preferred)**
+**Web search via Gemini CLI** (preferred)
+- Free tier: $0 (250/day limit, 10 RPM)
+- Paid failover (Flash Lite, thinking:low): ~$0.001 per search
+
+**Gemini Flash (API, for heavier tasks)**
 - Input: $0.10 per 1M tokens
 - Output: $0.40 per 1M tokens
-- Thinking tokens: $0.25 per 1M tokens (billed separately when present)
-- Grounded search: adds ~500-1000 extra tokens per search
-
-**Gemini 3.1 Pro (deep reasoning only)**
-- Input: $1.25 per 1M tokens
-- Output: $5.00 per 1M tokens
-- Thinking tokens: $1.00 per 1M tokens
-
-Formula:
-```
-cost = (inputTokens / 1M * inputRate) + (estOutputTokens / 1M * outputRate) + (estThinkingTokens / 1M * thinkingRate)
-```
 
 For scheduled/recurring tasks, multiply by frequency:
 ```
 dailyCost = singleCost * 1
-weeklyCost = singleCost * 7
 monthlyCost = singleCost * 30
 ```
 

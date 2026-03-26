@@ -15,7 +15,12 @@ THRESHOLD=85
 COMPOSE_DIR="/root/openclaw"
 MCP_DIR="/root/.openclaw/mcp-servers/openclaw-gateway"
 LOG_DIR="/root/.openclaw/logs"
-AGENTS=("relay" "main" "spec-projects" "spec-github" "spec-dev" "spec-reactor" "spec-browser" "spec-research" "spec-security" "spec-ops" "spec-design" "spec-systems" "spec-comms")
+# Dynamic agent list from openclaw.json (never hardcode — agents change)
+AGENTS_JSON=$(cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway cat /home/node/.openclaw/openclaw.json 2>/dev/null | python3 -c "import sys,json; print(' '.join(a['id'] for a in json.load(sys.stdin).get('agents',{}).get('list',[])))" 2>/dev/null || echo "")
+if [ -z "$AGENTS_JSON" ]; then
+  AGENTS_JSON="relay main spec-projects spec-github spec-dev spec-reactor spec-browser spec-research spec-security spec-ops spec-design spec-systems spec-comms spec-strategy spec-quartermaster spec-historian spec-realist eoin"
+fi
+read -ra AGENTS <<< "$AGENTS_JSON"
 
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=true
 

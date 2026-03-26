@@ -1,0 +1,93 @@
+---
+name: workshop
+description: Route ideas to The Workshop (Scribe on Telegram). Creates Spark topics for structured intent capture.
+version: 1.0.0
+author: relay
+tags: [workshop, idea, spark, intake, scribe]
+---
+
+# workshop -- Route to The Workshop
+
+## Purpose
+
+Route ideas and new work requests to Scribe (spec-projects) for structured intent capture through The Workshop on Telegram. Scribe creates a topic in the Ideas group and runs the full pipeline: Spark -> Shape -> Gauntlet -> Green Light -> Build -> Proof.
+
+## When to Trigger
+
+- User types `/workshop`
+- User says "workshop this" or "let's workshop it"
+- User describes an idea and you detect ideation language ("I want to be able to...", "what if we...", "new idea:", "we should build...")
+- Another agent routes an idea to you for Workshop intake
+
+## Flow
+
+### Step 1: Capture the raw idea
+
+If the user provided idea text with the command (e.g. `/workshop I want real-time agent dashboards`):
+- Use that text directly. Skip to Step 2.
+
+If bare `/workshop` with no text:
+- Ask: "What's the Spark? Drop it in one message — rough is fine."
+- Wait for their response.
+
+### Step 2: Create task record (MANDATORY)
+
+Before routing anywhere, create a task in ops.db so the work is visible in Bridge:
+
+```
+ops_insert_task(
+  agent: "spec-projects",
+  task: "Workshop Spark: {idea title or first 80 chars}",
+  context: "New idea from {user}: {full idea text}",
+  urgency: "routine"
+)
+```
+
+This is NOT optional. No task record = invisible work = broken system.
+
+### Step 3: Route to Scribe
+
+Dispatch to Scribe for Workshop intake:
+
+```
+ask_agent(
+  agent: "spec-projects",
+  message: "New Spark from {user name}: {full idea text}\n\nCreate a topic in the Ideas group and begin Workshop intake. Start with Spark stage.",
+  timeout: 120
+)
+```
+
+### Step 4: Confirm to user
+
+Tell the user:
+- "Spark sent to Workshop — Scribe is setting up a topic in the Ideas group."
+- Include the task ID from Step 2 so they can track it in Bridge.
+- If on Discord, include Bridge link: http://187.77.193.174:8082
+
+### Fallback: If Scribe is unreachable
+
+If ask_agent to spec-projects fails or times out:
+1. Tell the user: "Scribe is unavailable. Running local intake instead."
+2. Fall back to the `/idea` skill (which runs intake-engine.py locally).
+3. The ops_insert_task from Step 2 still exists, so the work is visible in Bridge regardless.
+
+### Fallback: If ops_insert_task fails
+
+If the MCP tool fails:
+1. Try CLI: `exec workshop-submit.sh "{idea text}" "spec-projects" "routine"`
+2. If that also fails, tell the user and log the failure.
+3. Still attempt Scribe routing — the idea shouldn't be lost just because ops.db is down.
+
+## Rules
+
+- ALWAYS create the ops_insert_task BEFORE routing to Scribe
+- NEVER improvise a text-only pseudo-workshop — use the real system
+- NEVER skip the task record — invisible work is the #1 system failure
+- If both Scribe AND ops_insert_task fail, tell the user clearly: "Workshop is down. Your idea: {text}. I'll retry when systems recover."
+
+## Per-User Voice
+
+- **Robert**: "Spark logged. Scribe's on it — topic incoming in Ideas."
+- **Corinne**: "Got it! Scribe is setting up a space for this in the Ideas group."
+
+Intent: Responsive [I04], Reliable [I05]. Purpose: P04 System Visibility.
