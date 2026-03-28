@@ -304,6 +304,74 @@ if [ "$DISK_PCT" -gt 75 ]; then
   fi
 fi
 
+# Check 8: Tap daemon — standalone check (not gated on gateway recovery)
+# Use exact process match to avoid false positives from Claude Code bash wrappers
+TAP_RUNNING=$(pgrep -x -f "python3 tap-daemon.py" >/dev/null 2>&1 && echo "yes" || echo "no")
+if [ "$TAP_RUNNING" = "no" ]; then
+  # Double-check with ps to be certain
+  TAP_RUNNING=$(ps aux | grep "[p]ython3 tap-daemon.py" | grep -v grep | wc -l)
+  if [ "$TAP_RUNNING" = "0" ]; then
+    log "ALERT: Tap daemon is DOWN — auto-restarting"
+    cd /root/.openclaw/scripts && nohup python3 tap-daemon.py >> /root/.openclaw/logs/tap-daemon.log 2>&1 &
+    sleep 2
+    if pgrep -f "tap-daemon.py" >/dev/null 2>&1; then
+      RECOVERED="${RECOVERED}Tap daemon auto-restarted. "
+      log "RECOVERED: Tap daemon restarted (PID $(pgrep -f tap-daemon.py | head -1))"
+    else
+      ALERTS="${ALERTS}Tap daemon DOWN and restart FAILED. "
+      log "ALERT: Tap daemon restart failed"
+    fi
+  fi
+fi
+
+# Check 9: host-ops-executor
+if ! ps aux | grep "[h]ost-ops-executor" | grep -qv grep; then
+  ALERTS="${ALERTS}host-ops-executor is DOWN. "
+  log "ALERT: host-ops-executor down"
+fi
+
+# Check 10: backbone-listener
+if ! ps aux | grep "[b]ackbone-listener.py" | grep -qv grep; then
+  log "ALERT: backbone-listener is DOWN — auto-restarting"
+  cd /root/.openclaw/scripts && nohup python3 backbone-listener.py >> /root/.openclaw/logs/backbone-listener.log 2>&1 &
+  sleep 2
+  if ps aux | grep "[b]ackbone-listener.py" | grep -qv grep >/dev/null; then
+    RECOVERED="${RECOVERED}backbone-listener auto-restarted. "
+    log "RECOVERED: backbone-listener restarted"
+  else
+    ALERTS="${ALERTS}backbone-listener DOWN and restart FAILED. "
+    log "ALERT: backbone-listener restart failed"
+  fi
+fi
+
+# Check 11: relay-handoff-watcher
+if ! ps aux | grep "[r]elay-handoff-watcher.py" | grep -qv grep; then
+  log "ALERT: relay-handoff-watcher is DOWN — auto-restarting"
+  cd /root/.openclaw/scripts && nohup python3 relay-handoff-watcher.py >> /root/.openclaw/logs/relay-handoff-watcher.log 2>&1 &
+  sleep 2
+  if ps aux | grep "[r]elay-handoff-watcher.py" | grep -qv grep >/dev/null; then
+    RECOVERED="${RECOVERED}relay-handoff-watcher auto-restarted. "
+    log "RECOVERED: relay-handoff-watcher restarted"
+  else
+    ALERTS="${ALERTS}relay-handoff-watcher DOWN and restart FAILED. "
+    log "ALERT: relay-handoff-watcher restart failed"
+  fi
+fi
+
+# Check 12: telegram-listener
+if ! ps aux | grep "[t]elegram-listener.py" | grep -qv grep; then
+  ALERTS="${ALERTS}telegram-listener is DOWN (cron should restart). "
+  log "ALERT: telegram-listener down"
+fi
+
+# Check 13: Bridge dashboards (alert only — manual restart, may be intentionally stopped)
+for BRIDGE_NAME in bridge bridge-dev bridge-corinne; do
+  if ! ps aux | grep "[d]ashboard-api.py" | grep -q "$BRIDGE_NAME"; then
+    ALERTS="${ALERTS}${BRIDGE_NAME} dashboard-api is DOWN. "
+    log "ALERT: ${BRIDGE_NAME} dashboard-api down"
+  fi
+done
+
 # State-change recovery: gateway was down, now running → fire recovery hook ONCE
 PREV_GATEWAY=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('gateway','unknown'))" 2>/dev/null) || PREV_GATEWAY="unknown"
 if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1" ] || { [ "$PREV_GATEWAY" != "running" ] && [ "$PREV_GATEWAY" != "unknown" ]; }; }; then

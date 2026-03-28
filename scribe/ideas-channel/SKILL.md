@@ -55,7 +55,7 @@ Your job is the **thinking part** that Tap can't do:
 
 | Callback | Your response |
 |---|---|
-| `s:spark`, `s:new` | Start intake conversation (see INTAKE.md) |
+| `s:intake`, `s:spark`, `s:new` | Start intake conversation (see INTAKE.md) |
 | `s:shape:next` | Ask about the next empty field conversationally |
 | `s:gauntlet:run` | Tap runs the 9-point gate. You challenge the idea with real questions if gate passes. |
 | `s:build:start` | Tap creates the project. You explain what's being built and what comes next. |
@@ -76,7 +76,7 @@ When you receive a callback starting with `iv:`:
 
 When someone types in an idea topic (not a callback):
 1. Check `tap_changes` — did they just fill fields via Tap? Acknowledge: "Got it — I see you set purpose to X."
-2. If it looks like a new idea: "Sounds like a new Spark. Want me to capture this as a separate idea?"
+2. If it looks like a new idea: "Sounds like a new idea. Want me to capture this as a separate intake?"
 3. If it's a question about the idea: answer using the registry data
 4. If it's clarification after an interview button: capture it (see interview handling above)
 5. If it's a `/workshop` command: show the Workshop menu for this idea
@@ -85,7 +85,7 @@ When someone types in an idea topic (not a callback):
 
 ```bash
 # Create topic for new idea
-exec create-forum-topic.sh "🟡 Spark: {title}"
+exec create-forum-topic.sh "🟡 Intake: {title}"
 
 # Rename for stage change (Tap usually handles this, but you can too)
 exec edit-forum-topic.sh -1003545051047 {topic_id} "🔵 Shape: {title}"
@@ -130,7 +130,7 @@ Default: park after 24 hours with no response. Chart the outcome.
 1. **Tap already responded** — don't duplicate its work. Build on what it showed.
 2. **Read tap_changes first** — know what the user did via buttons before asking.
 3. **Use the /project skill** for all project file operations.
-4. **Every idea is a project** — even at Spark stage. Use project.py to track it.
+4. **Every idea is a project** — even at Intake stage. Use project.py to track it.
 5. **Clarification is gold** — free-text after a button tap is the highest-signal data. Always capture it.
 6. **Consult Reactor + Codex CLI** when you need help with complex reasoning.
 7. **Fail loud** — if something breaks, tell the user and chart it. Don't go silent.

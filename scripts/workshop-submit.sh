@@ -6,7 +6,7 @@
 #   workshop-submit.sh "task description" [agent] [urgency] [context]
 #
 # Examples:
-#   workshop-submit.sh "Workshop Spark: Real-time agent dashboard"
+#   workshop-submit.sh "Workshop Intake: Real-time agent dashboard"
 #   workshop-submit.sh "Fix Bridge login" spec-dev blocking
 #   workshop-submit.sh "Research competitor pricing" spec-research routine "For Macon pitch"
 
