@@ -37,9 +37,13 @@ fi
 # --- Helper: run openclaw commands in either context ---
 oc_cmd() {
   if [ "$IN_CONTAINER" = true ]; then
-    openclaw "$@" 2>/dev/null | grep -v "level=warning"
+    if command -v openclaw &>/dev/null; then
+      openclaw "$@" 2>/dev/null | { grep -v "level=warning" || true; }
+    else
+      return 0
+    fi
   else
-    cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway openclaw "$@" 2>/dev/null | grep -v "level=warning"
+    cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway openclaw "$@" 2>/dev/null | { grep -v "level=warning" || true; }
   fi
 }
 
@@ -84,6 +88,10 @@ done
 
 if [ ${#bloated_keys[@]} -eq 0 ]; then
   echo "All sessions under ${THRESHOLD}% context. Nothing to do."
+  if [ "$DRY_RUN" = true ]; then
+    echo "(dry-run — skipping cleanup)"
+    exit 0
+  fi
   # Still run orphan cleanup
   oc_cmd sessions cleanup --all-agents --enforce --fix-missing 2>/dev/null | tail -3
   exit 0

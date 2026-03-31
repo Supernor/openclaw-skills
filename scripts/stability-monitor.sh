@@ -158,6 +158,7 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
     PENDING_REAUTH=$(python3 -c "
 import sqlite3, json
 conn = sqlite3.connect('$OPS_DB')
+conn.execute('PRAGMA busy_timeout=5000')
 rows = conn.execute(\"SELECT meta FROM tasks WHERE status IN ('pending','in_progress') AND meta IS NOT NULL\").fetchall()
 count = sum(1 for r in rows if 'codex-reauth' in (json.loads(r[0]).get('host_op','') if r[0] else ''))
 print(count)
@@ -167,6 +168,7 @@ conn.close()
       python3 -c "
 import sqlite3
 conn = sqlite3.connect('$OPS_DB')
+conn.execute('PRAGMA busy_timeout=5000')
 conn.execute('''INSERT INTO tasks (agent, task, meta, urgency) VALUES (?, ?, ?, ?)''',
     ('stability-monitor', 'codex-reauth', '{\"host_op\":\"codex-reauth\",\"auto\":true}', 'critical'))
 conn.commit()
@@ -324,10 +326,18 @@ if [ "$TAP_RUNNING" = "no" ]; then
   fi
 fi
 
-# Check 9: host-ops-executor
+# Check 9: host-ops-executor — auto-restart via systemd
 if ! ps aux | grep "[h]ost-ops-executor" | grep -qv grep; then
-  ALERTS="${ALERTS}host-ops-executor is DOWN. "
-  log "ALERT: host-ops-executor down"
+  log "ALERT: host-ops-executor is DOWN — auto-restarting via systemd"
+  systemctl restart openclaw-host-ops.service 2>/dev/null
+  sleep 3
+  if systemctl is-active openclaw-host-ops.service >/dev/null 2>&1; then
+    RECOVERED="${RECOVERED}host-ops-executor auto-restarted via systemd. "
+    log "RECOVERED: host-ops-executor restarted"
+  else
+    ALERTS="${ALERTS}host-ops-executor DOWN and systemd restart FAILED. "
+    log "ALERT: host-ops-executor restart failed (systemd status: $(systemctl is-active openclaw-host-ops.service 2>/dev/null))"
+  fi
 fi
 
 # Check 10: backbone-listener
@@ -461,8 +471,27 @@ send_alert() {
   fi
 }
 
-# Send alerts
+# Send alerts (with dedup — only send on state CHANGE or every 30 min for ongoing)
 if [ -n "$ALERTS" ]; then
+  PREV_ALERT=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_alert_text',''))" 2>/dev/null) || PREV_ALERT=""
+  PREV_ALERT_TIME=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_alert',''))" 2>/dev/null) || PREV_ALERT_TIME=""
+  MINUTES_SINCE_ALERT=999
+  if [ -n "$PREV_ALERT_TIME" ]; then
+    MINUTES_SINCE_ALERT=$(python3 -c "
+from datetime import datetime, timezone
+try:
+    t=datetime.fromisoformat('$PREV_ALERT_TIME'.replace('Z','+00:00'))
+    print(int((datetime.now(timezone.utc)-t).total_seconds()/60))
+except: print(999)
+" 2>/dev/null) || MINUTES_SINCE_ALERT=999
+  fi
+  # Send if: (1) new alert text, (2) first alert, or (3) 30+ min since last send
+  SHOULD_SEND="no"
+  if [ "$ALERTS" != "$PREV_ALERT" ]; then SHOULD_SEND="yes"; fi
+  if [ "$FAILURES" -le 1 ]; then SHOULD_SEND="yes"; fi
+  if [ "$MINUTES_SINCE_ALERT" -ge 30 ]; then SHOULD_SEND="yes"; fi
+
+  if [ "$SHOULD_SEND" = "yes" ]; then
   # Build resource snapshot for context
   MEM_SNAP="RAM: $(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)MB free"
   SWAP_SNAP=""
@@ -484,6 +513,9 @@ Checked: $(date -u +%H:%M) UTC"
 
   send_alert "$MSG" "general" "$(hostname)"
   log "Alert sent to Discord"
+  else
+    log "Alert suppressed (same as last, ${MINUTES_SINCE_ALERT}m since last send, failures=$FAILURES)"
+  fi
 fi
 
 # Send recovery notices
