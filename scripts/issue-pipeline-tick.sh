@@ -19,11 +19,9 @@ log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" >> "$LOG"; }
 # Count unbundled issues
 UNBUNDLED=$(sqlite3 /root/.openclaw/ops.db "SELECT COUNT(*) FROM issues WHERE bundle_id IS NULL AND status='logged'" 2>/dev/null || echo 0)
 
-if [ "$UNBUNDLED" -eq 0 ]; then
-    exit 0  # Nothing to do — silent exit, no log spam
-fi
-
-log "Pipeline tick: $UNBUNDLED unbundled issues"
+# Only bundle if there are unbundled issues — but ALWAYS run orphan escalation and blocked diagnosis below
+if [ "$UNBUNDLED" -gt 0 ]; then
+    log "Pipeline tick: $UNBUNDLED unbundled issues"
 
 # Check for critical severity — immediate Telegram alert, no batching
 CRITICAL=$(sqlite3 /root/.openclaw/ops.db "SELECT id, description, system FROM issues WHERE severity='critical' AND status='logged' AND bundle_id IS NULL LIMIT 1" 2>/dev/null)
@@ -52,6 +50,10 @@ if [ -n "$OSCILLATING" ]; then
     log "OSCILLATION WARNING: $OSCILLATING"
 fi
 
+fi  # end of UNBUNDLED > 0 block
+
+# ── These safety checks run EVERY tick, regardless of unbundled count ──
+
 # ── Layer 3: Auto-escalate orphaned pending tasks ──
 # Tasks pending >2 hours without host_op can't be picked up by executor.
 # Add reactor-dispatch so they don't starve.
@@ -59,7 +61,7 @@ ORPHANS=$(sqlite3 /root/.openclaw/ops.db "
     SELECT id FROM tasks
     WHERE status='pending'
     AND (meta IS NULL OR json_extract(meta, '\$.host_op') IS NULL)
-    AND created_at < datetime('now', '-2 hours')
+    AND REPLACE(created_at, 'Z', '') < datetime('now', '-2 hours')
 " 2>/dev/null)
 if [ -n "$ORPHANS" ]; then
     for TASK_ID in $ORPHANS; do

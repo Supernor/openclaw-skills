@@ -181,11 +181,14 @@ conn.close()
     fi
   fi
 
-  # Check 4: Crash loop detection
+  # Check 4: Crash loop detection — compare against stored baseline, not zero
+  # Docker RestartCount is cumulative lifetime. We detect NEW restarts since last check.
   RESTART_COUNT=$(docker inspect --format '{{.RestartCount}}' "$CONTAINER" 2>/dev/null) || { log "CHECK FAILED: docker restart count"; CHECK_ERRORS=$((CHECK_ERRORS+1)); RESTART_COUNT=0; }
-  if [ "$RESTART_COUNT" -gt 3 ]; then
-    ALERTS="${ALERTS}Gateway in restart loop (${RESTART_COUNT} restarts). "
-    log "ALERT: Restart loop ($RESTART_COUNT)"
+  PREV_RESTARTS=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('restart_count',0))" 2>/dev/null) || PREV_RESTARTS=0
+  NEW_RESTARTS=$((RESTART_COUNT - PREV_RESTARTS))
+  if [ "$NEW_RESTARTS" -gt 3 ]; then
+    ALERTS="${ALERTS}Gateway in restart loop (${NEW_RESTARTS} new restarts since last check). "
+    log "ALERT: Restart loop ($NEW_RESTARTS new, $RESTART_COUNT total)"
   fi
 fi
 
@@ -375,10 +378,12 @@ if ! ps aux | grep "[t]elegram-listener.py" | grep -qv grep; then
 fi
 
 # Check 13: Bridge dashboards (alert only — manual restart, may be intentionally stopped)
-for BRIDGE_NAME in bridge bridge-dev bridge-corinne; do
-  if ! ps aux | grep "[d]ashboard-api.py" | grep -q "$BRIDGE_NAME"; then
-    ALERTS="${ALERTS}${BRIDGE_NAME} dashboard-api is DOWN. "
-    log "ALERT: ${BRIDGE_NAME} dashboard-api down"
+# bridge-corinne was consolidated into bridge-unified (one process, ports 8082+8084)
+# Check by service name, not by process grep
+for SVC in openclaw-bridge-unified openclaw-bridge-dev; do
+  if ! systemctl is-active --quiet "$SVC" 2>/dev/null; then
+    ALERTS="${ALERTS}${SVC} is DOWN. "
+    log "ALERT: ${SVC} down"
   fi
 done
 
@@ -445,7 +450,8 @@ state = {
     'discord': '$DISCORD_STATE',
     'rate_limited': True if '$RATE_LIMITED' == 'true' else False,
     'last_check': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
-    'consecutive_failures': $FAILURES
+    'consecutive_failures': $FAILURES,
+    'restart_count': $RESTART_COUNT
 }
 if '$ALERTS':
     state['last_alert'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
