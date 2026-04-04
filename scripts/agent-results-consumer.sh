@@ -49,7 +49,7 @@ if [ "$COUNT" -gt 0 ]; then
 fi
 
 # Dead-letter check: flag results older than 24h that are STILL unconsumed after this run
-STALE=$(_exec sqlite3 "$DB" "SELECT COUNT(*) FROM agent_results WHERE consumed = 0 AND datetime(created_at) < datetime('now', '-24 hours');" 2>/dev/null) || true
+STALE=$(_exec sqlite3 "$DB" "SELECT COUNT(*) FROM agent_results WHERE consumed = 0 AND REPLACE(REPLACE(created_at, 'T', ' '), 'Z', '') < datetime('now', '-24 hours');" 2>/dev/null) || true
 if [ -n "$STALE" ] && [ "$STALE" -gt 0 ]; then
   echo "[$(ts)] WARNING: $STALE unconsumed results older than 24h" >> "$LOG"
   mkdir -p /root/.openclaw/health

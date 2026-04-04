@@ -43,7 +43,7 @@ log "Bundling complete"
 # Check oscillation: 3+ fixes to same system in 48h = warning
 OSCILLATING=$(sqlite3 /root/.openclaw/ops.db "
     SELECT system, COUNT(*) as fixes FROM issues
-    WHERE status='fixed' AND updated_at > datetime('now', '-48 hours')
+    WHERE status='fixed' AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') > datetime('now', '-48 hours')
     GROUP BY system HAVING fixes >= 3
 " 2>/dev/null)
 if [ -n "$OSCILLATING" ]; then
@@ -61,7 +61,7 @@ ORPHANS=$(sqlite3 /root/.openclaw/ops.db "
     SELECT id FROM tasks
     WHERE status='pending'
     AND (meta IS NULL OR json_extract(meta, '\$.host_op') IS NULL)
-    AND REPLACE(created_at, 'Z', '') < datetime('now', '-2 hours')
+    AND REPLACE(REPLACE(created_at, 'T', ' '), 'Z', '') < datetime('now', '-2 hours')
 " 2>/dev/null)
 if [ -n "$ORPHANS" ]; then
     for TASK_ID in $ORPHANS; do
@@ -79,7 +79,7 @@ fi
 BLOCKED_READONLY=$(sqlite3 /root/.openclaw/ops.db "
     SELECT id, outcome FROM tasks
     WHERE status='blocked' AND (outcome LIKE '%readonly%' OR outcome LIKE '%read-only%' OR outcome LIKE '%permission denied%')
-    AND updated_at > datetime('now', '-24 hours')
+    AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') > datetime('now', '-24 hours')
     LIMIT 3
 " 2>/dev/null)
 if [ -n "$BLOCKED_READONLY" ]; then

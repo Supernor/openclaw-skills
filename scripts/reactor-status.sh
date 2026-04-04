@@ -55,7 +55,7 @@ if command -v systemctl &>/dev/null; then
 else
   # Inside container — check if a job was completed in the last 30 minutes
   if [ -f "$LEDGER_DB" ] && command -v sqlite3 &>/dev/null; then
-    RECENT=$(sqlite3 "$LEDGER_DB" "SELECT COUNT(*) FROM jobs WHERE status IN ('completed','in-progress') AND date_received > datetime('now', '-30 minutes');" 2>/dev/null || echo "0")
+    RECENT=$(sqlite3 "$LEDGER_DB" "SELECT COUNT(*) FROM jobs WHERE status IN ('completed','in-progress') AND REPLACE(REPLACE(date_received, 'T', ' '), 'Z', '') > datetime('now', '-30 minutes');" 2>/dev/null || echo "0")
     if [ "$RECENT" -gt 0 ] 2>/dev/null; then
       REACTOR="online"
       note "inferred online from recent bridge activity (no systemctl access)"

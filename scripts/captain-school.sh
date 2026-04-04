@@ -39,13 +39,13 @@ Full reference: docs/mcp-tools-reference.md — agents should call capabilities 
 ENGINE_INFO=$(sqlite3 /root/.openclaw/ops.db "
 SELECT engine || COALESCE(' ' || pool, '') || ': ' ||
   COALESCE(CAST(capacity AS TEXT) || '/week', 'unlimited') ||
-  ' (' || (SELECT COUNT(*) FROM engine_usage u WHERE u.engine=e.engine AND (u.pool IS e.pool OR (u.pool IS NULL AND e.pool IS NULL)) AND u.ts > datetime('now', '-7 days')) || ' used this week)'
+  ' (' || (SELECT COUNT(*) FROM engine_usage u WHERE u.engine=e.engine AND (u.pool IS e.pool OR (u.pool IS NULL AND e.pool IS NULL)) AND REPLACE(REPLACE(u.ts, 'T', ' '), 'Z', '') > datetime('now', '-7 days')) || ' used this week)'
 FROM engine_fuel e ORDER BY engine" 2>/dev/null | tr '\n' '; ')
 
 # Recent completed tasks (what the system learned)
 RECENT=$(sqlite3 /root/.openclaw/ops.db "
 SELECT '#' || id || ' ' || agent || ': ' || substr(task,1,60)
-FROM tasks WHERE status='completed' AND updated_at > datetime('now', '-24 hours')
+FROM tasks WHERE status='completed' AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') > datetime('now', '-24 hours')
 ORDER BY id DESC LIMIT 10" 2>/dev/null | tr '\n' '; ')
 
 # Current architecture facts

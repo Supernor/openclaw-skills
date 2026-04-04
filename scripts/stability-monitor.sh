@@ -154,12 +154,16 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
   # Check 4a: Codex OAuth failure detection
   CODEX_ERRORS=$(docker compose -f /root/openclaw/docker-compose.yml logs --since=5m openclaw-gateway 2>&1 | grep -ci "token refresh failed\|oauth token refresh failed\|openai-codex.*401\|openai-codex.*unauthorized") || CODEX_ERRORS=0
   if [ "$CODEX_ERRORS" -gt 0 ]; then
-    # Only trigger reauth if no pending codex-reauth task already exists
+    # Only trigger reauth if no recent codex-reauth task exists (pending, in_progress, OR blocked in last 2h)
+    # Previous bug: only checked pending/in_progress, so blocked reauths were invisible → 20 spawned overnight
     PENDING_REAUTH=$(python3 -c "
 import sqlite3, json
 conn = sqlite3.connect('$OPS_DB')
 conn.execute('PRAGMA busy_timeout=5000')
-rows = conn.execute(\"SELECT meta FROM tasks WHERE status IN ('pending','in_progress') AND meta IS NOT NULL\").fetchall()
+rows = conn.execute(\"\"\"SELECT meta FROM tasks
+    WHERE status IN ('pending','in_progress','blocked')
+    AND meta IS NOT NULL
+    AND created_at > datetime('now', '-2 hours')\"\"\").fetchall()
 count = sum(1 for r in rows if 'codex-reauth' in (json.loads(r[0]).get('host_op','') if r[0] else ''))
 print(count)
 conn.close()

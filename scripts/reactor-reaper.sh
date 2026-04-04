@@ -22,7 +22,7 @@ LEDGER="/home/node/.openclaw/bridge/reactor-ledger.sqlite"
 STUCK_JOBS=$(_exec sqlite3 "$LEDGER" "
   UPDATE jobs SET status = 'failed'
   WHERE status = 'chunked'
-  AND updated_at < datetime('now', '-24 hours');
+  AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') < datetime('now', '-24 hours');
   SELECT changes();
 " 2>/dev/null) || STUCK_JOBS=0
 [ "$STUCK_JOBS" -gt 0 ] && echo "[$(ts)] Reaped $STUCK_JOBS stuck chunked jobs" >> "$LOG"
@@ -31,7 +31,7 @@ STUCK_JOBS=$(_exec sqlite3 "$LEDGER" "
 STUCK_HANDOFFS=$(_exec sqlite3 "$LEDGER" "
   UPDATE handoff_sent SET handoff_state = 'failed'
   WHERE handoff_state = 'required'
-  AND created_at < datetime('now', '-24 hours');
+  AND REPLACE(REPLACE(created_at, 'T', ' '), 'Z', '') < datetime('now', '-24 hours');
   SELECT changes();
 " 2>/dev/null) || STUCK_HANDOFFS=0
 [ "$STUCK_HANDOFFS" -gt 0 ] && echo "[$(ts)] Reaped $STUCK_HANDOFFS stuck handoffs" >> "$LOG"
@@ -39,9 +39,9 @@ STUCK_HANDOFFS=$(_exec sqlite3 "$LEDGER" "
 # 3. Reap stuck ops.db tasks (pending >48h → failed)
 OPS_DB="/home/node/.openclaw/ops.db"
 STUCK_TASKS=$(_exec sqlite3 "$OPS_DB" "
-  UPDATE tasks SET status = 'failed', updated_at = datetime('now')
+  UPDATE tasks SET status = 'failed', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
   WHERE status = 'pending'
-  AND created_at < datetime('now', '-48 hours');
+  AND REPLACE(REPLACE(created_at, 'T', ' '), 'Z', '') < datetime('now', '-48 hours');
   SELECT changes();
 " 2>/dev/null) || STUCK_TASKS=0
 [ "$STUCK_TASKS" -gt 0 ] && echo "[$(ts)] Reaped $STUCK_TASKS stuck ops.db tasks" >> "$LOG"
@@ -50,7 +50,7 @@ STUCK_TASKS=$(_exec sqlite3 "$OPS_DB" "
 EXPIRED=$(_exec sqlite3 "$OPS_DB" "
   DELETE FROM agent_results
   WHERE consumed = 1
-  AND consumed_at < datetime('now', '-48 hours');
+  AND REPLACE(REPLACE(consumed_at, 'T', ' '), 'Z', '') < datetime('now', '-48 hours');
   SELECT changes();
 " 2>/dev/null) || EXPIRED=0
 [ "$EXPIRED" -gt 0 ] && echo "[$(ts)] Cleaned $EXPIRED expired agent_results" >> "$LOG"
@@ -60,7 +60,7 @@ HOST_OPS_DB="/root/.openclaw/ops.db"
 RETRY_CHAINS=$(sqlite3 "$HOST_OPS_DB" "
   UPDATE tasks SET status = 'cancelled',
     outcome = COALESCE(outcome,'') || ' [auto-cancelled: retry chain depth exceeded]',
-    updated_at = datetime('now')
+    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
   WHERE status = 'blocked' AND task LIKE 'Fix: Fix: Fix:%';
   SELECT changes();
 " 2>/dev/null) || RETRY_CHAINS=0
@@ -70,16 +70,16 @@ RETRY_CHAINS=$(sqlite3 "$HOST_OPS_DB" "
 AGED_BLOCKED=$(sqlite3 "$HOST_OPS_DB" "
   UPDATE tasks SET status = 'cancelled',
     outcome = COALESCE(outcome,'') || ' [auto-cancelled: blocked >24h]',
-    updated_at = datetime('now')
+    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
   WHERE status = 'blocked'
-  AND updated_at < datetime('now', '-24 hours');
+  AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') < datetime('now', '-24 hours');
   SELECT changes();
 " 2>/dev/null) || AGED_BLOCKED=0
 [ "$AGED_BLOCKED" -gt 0 ] && echo "[$(ts)] Aged out $AGED_BLOCKED blocked tasks (>24h)" >> "$LOG"
 
 # 7. Unblock tasks whose dependencies were cancelled or failed (dead dependency chains)
 UNBLOCKED=$(sqlite3 "$HOST_OPS_DB" "
-  UPDATE tasks SET blocked_by = NULL, updated_at = datetime('now')
+  UPDATE tasks SET blocked_by = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
   WHERE status = 'pending'
   AND blocked_by IS NOT NULL
   AND blocked_by IN (SELECT CAST(id AS TEXT) FROM tasks WHERE status IN ('cancelled','failed'));
@@ -91,11 +91,11 @@ UNBLOCKED=$(sqlite3 "$HOST_OPS_DB" "
 EXPIRED_FEEDBACK=$(sqlite3 "$HOST_OPS_DB" "
   UPDATE bearings_queue SET status='expired',
     response_value = json_extract(options, '$[0]'),
-    answered_at = datetime('now'),
+    answered_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
     approved_by = 'auto-timeout'
   WHERE status = 'pending'
   AND expires_at IS NOT NULL
-  AND expires_at < datetime('now');
+  AND REPLACE(REPLACE(expires_at, 'T', ' '), 'Z', '') < datetime('now');
   SELECT changes();
 " 2>/dev/null) || EXPIRED_FEEDBACK=0
 [ "$EXPIRED_FEEDBACK" -gt 0 ] && echo "[$(ts)] Auto-answered $EXPIRED_FEEDBACK expired feedback questions" >> "$LOG"
