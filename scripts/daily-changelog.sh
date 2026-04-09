@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# daily-changelog.sh — Generate a daily changelog chart from completed tasks.
-# Summarizes what OpenClaw agents did in the last 24 hours.
-# Runs as morning cron (after nightly cycle finishes).
-#
-# Uses Chartroom — all agents can read via chart_search("changelog").
+# Alignment: morning cron that charts the last 24h of agent and task activity.
+# Role: summarize overnight OpenClaw work into one `changelog` Chartroom entry.
+# Dependencies: reads ops.db task outcomes from the last 24 hours, calls the
+# `chart` CLI for read/add operations, and appends execution notes to
+# /root/.openclaw/logs/daily-changelog.log.
+# Key patterns: idempotent daily registration via `changelog-auto-YYYY-MM-DD`,
+# UTC date windows for stable cron output, and changelog-only write behavior so
+# downstream readers can query a single daily summary without mutating task state.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -eo pipefail
 
@@ -17,8 +21,8 @@ LOG="/root/.openclaw/logs/daily-changelog.log"
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" >> "$LOG"; }
 
 # Check if today's changelog already exists (idempotent)
-EXISTING=$($CHART read "$CHART_ID" 2>/dev/null | head -1)
-if echo "$EXISTING" | grep -q "ID:"; then
+EXISTING=$($CHART read "$CHART_ID" 2>/dev/null | head -1 || true)
+if echo "$EXISTING" | grep -q "ID:" 2>/dev/null; then
     log "Changelog $CHART_ID already exists, skipping"
     exit 0
 fi
@@ -32,7 +36,7 @@ COMPLETED=$(sqlite3 "$OPS_DB" "
     ORDER BY completed_at
 " 2>/dev/null)
 
-COMPLETED_COUNT=$(echo "$COMPLETED" | grep -c "." 2>/dev/null || echo 0)
+COMPLETED_COUNT=$(echo "$COMPLETED" | grep -c "." 2>/dev/null || echo "0")
 
 # Gather blocked tasks (problems found)
 BLOCKED=$(sqlite3 "$OPS_DB" "
@@ -43,7 +47,7 @@ BLOCKED=$(sqlite3 "$OPS_DB" "
     ORDER BY created_at
 " 2>/dev/null)
 
-BLOCKED_COUNT=$(echo "$BLOCKED" | grep -c "." 2>/dev/null || echo 0)
+BLOCKED_COUNT=$(echo "$BLOCKED" | grep -c "." 2>/dev/null || echo "0")
 
 # Gather new issues logged
 ISSUES=$(sqlite3 "$OPS_DB" "
@@ -53,7 +57,7 @@ ISSUES=$(sqlite3 "$OPS_DB" "
     ORDER BY logged_at
 " 2>/dev/null)
 
-ISSUE_COUNT=$(echo "$ISSUES" | grep -c "." 2>/dev/null || echo 0)
+ISSUE_COUNT=$(echo "$ISSUES" | grep -c "." 2>/dev/null || echo "0")
 
 # Build the changelog text
 SUMMARY="AUTO CHANGELOG ${DATE}. ${COMPLETED_COUNT} tasks completed, ${BLOCKED_COUNT} blocked, ${ISSUE_COUNT} issues logged."

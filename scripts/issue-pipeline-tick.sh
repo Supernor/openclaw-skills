@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# issue-pipeline-tick.sh — Runs every 10 minutes via cron.
-# Checks for unbundled issues and bundles them by fingerprint.
-# Also checks for critical severity issues that need immediate Telegram alert.
-#
-# Part of the boy scout issue pipeline:
-# discover → BATCH (this script) → propose → debate → execute → close
-#
-# Cadence: 10-min rolling window OR 5+ unbundled issues (whichever first).
-# The cron runs every 10 min; the threshold check below handles the count trigger.
+# Alignment: cron tick that keeps the issue pipeline moving and self-heals stalls.
+# Role: every 10 minutes, batch logged issues by fingerprint and run pipeline safety checks.
+# Dependencies: reads and updates `/root/.openclaw/ops.db`, appends `/root/.openclaw/logs/issue-pipeline.log`,
+# calls `/root/.openclaw/scripts/issue-log.py bundle`, uses `sqlite3`/`python3`/`curl`,
+# and may send Telegram alerts or chmod DB files when blocked-task remediation triggers.
+# Key patterns: bundling is gated on unbundled logged issues, but orphan escalation and blocked-task
+# diagnosis run every tick; critical issues bypass batching for alerting, and repeated fixes become
+# oscillation warnings so the system records churn instead of silently looping.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -eo pipefail
 

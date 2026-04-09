@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# infrastructure-audit.sh — Audit scripts, crons, tables, services.
-# Golden script: runs on host where all paths are accessible.
-# Reports what exists vs what's charted.
-#
-# Usage: infrastructure-audit.sh [scripts|crons|tables|services|all]
+# Alignment: host audit script for inventory-vs-chart coverage checks.
+# Role: audit scripts, crons, tables, and services, then report what exists
+# against what is charted across the host and ops database.
+# Dependencies: reads /root/.openclaw/scripts, host crontab, systemd units,
+# `/root/.openclaw/ops.db`, and chart CLI output; writes only stdout/stderr.
+# Key patterns: section-scoped audit functions with stable headings, fast
+# shell-first inventory queries, and coverage diffs tuned for whole-system
+# drift detection in a single ~3s pass.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -eo pipefail
 trap '' PIPE  # Ignore SIGPIPE — systemctl and sqlite3 pipes can break early

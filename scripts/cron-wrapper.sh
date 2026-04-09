@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# cron-wrapper.sh — Wraps cron commands to capture and log outcomes.
-# Usage: cron-wrapper.sh "job-name" command [args...]
-#
-# Captures: exit code, last 5 lines of output, duration.
-# Writes to ops.db cron_outcomes table.
-# Use this for all crons that need outcome visibility on Bridge.
-#
-# Example crontab entry:
-#   */10 * * * * /root/.openclaw/scripts/cron-wrapper.sh "issue-pipeline" /root/.openclaw/scripts/issue-pipeline-tick.sh
+# Alignment: cron wrapper that records command outcomes into ops.db for Bridge visibility.
+# Role: run any cron target, capture exit code/output tail/duration, and persist a cron_outcomes row.
+# Dependencies: reads the invoked command and shell output stream; writes /root/.openclaw/ops.db cron_outcomes entries;
+# calls `date`, `mktemp`, `tail`, `sqlite3`, and the wrapped command itself.
+# Key patterns: generic wrapper contract is `JOB_NAME command [args...]`; always preserves wrapped command exit status;
+# stores only the last 5 output lines plus elapsed milliseconds so Bridge can show compact outcome history.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -o pipefail
 

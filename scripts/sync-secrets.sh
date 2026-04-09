@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# sync-secrets.sh — Pull static API keys from GitHub Secrets (openclaw-config) to .env
-# Golden script: agents trigger via host_op="sync-secrets"
-#
-# Usage: sync-secrets.sh pull     — download GitHub Secrets → update .env
-#        sync-secrets.sh status   — show which keys exist and when last set
-#        sync-secrets.sh push KEY — push a local key to GitHub (requires approval)
-#
-# Source of truth: Supernor/openclaw-config GitHub Secrets
-# Local: /root/openclaw/.env
-# Does NOT touch Codex OAuth (runtime token — handled by sync-codex-auth.sh)
+# Alignment: golden secret sync script for static API keys between GitHub and local env.
+# Role: pull key material into `/root/openclaw/.env`, report freshness, and gate push flows.
+# Dependencies: reads `GH_TOKEN` and local `.env`, writes `/root/openclaw/.env` and sync logs,
+# calls `gh secret` against `Supernor/openclaw-config`, and excludes Codex OAuth handling.
+# Key patterns: host-op entrypoint is `sync-secrets`; `pull`, `status`, and approval-backed
+# `push KEY` preserve GitHub Secrets as source of truth while surfacing local key freshness.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -eo pipefail
 

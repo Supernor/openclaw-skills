@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# sync-codex-auth.sh — Sync Codex CLI OAuth tokens to gateway auth-profiles.json
-# Run after `codex auth login` to prevent the "CLI authed but gateway expired" problem.
-#
-# What it does:
-#   1. Reads fresh tokens from ~/.codex/auth.json (CLI)
-#   2. Updates /root/.openclaw/agents/main/agent/auth-profiles.json (gateway)
-#   3. Restarts gateway to pick up new tokens
-#
-# Can be triggered:
-#   - Manually: sync-codex-auth.sh
-#   - Via golden script: host_op="sync-codex-auth"
-#   - As post-reauth hook (TODO: wire into codex-reauth.py)
+# Alignment: sync Codex CLI OAuth state into gateway auth profiles, then restart.
+# Role: keeps gateway authentication aligned with fresh Codex CLI reauth state.
+# Dependencies: reads ~/.codex/auth.json, writes
+# /root/.openclaw/agents/main/agent/auth-profiles.json, logs to
+# /root/.openclaw/logs/sync-codex-auth.log, and calls docker restart on gateway.
+# Key pattern: CLI remains source of truth; this script copies only the needed
+# token fields into gateway state so CLI reauth does not leave gateway stale.
+# Behavioral guard: fail fast if either auth file is missing, append timestamped
+# logs for auditability, and restart gateway only after sync completes.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -eo pipefail
 

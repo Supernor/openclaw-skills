@@ -1,8 +1,14 @@
 #!/bin/bash
-# Stability Monitor — runs every 5 minutes, alerts Robert on Telegram ONLY when something is wrong
-# Designed to be quiet when healthy, loud when broken.
-# State file tracks last-known state to avoid spam.
-# Exit codes: 0=healthy, 1=monitored systems have problems, 2=monitoring itself is broken
+# Alignment: 5-minute host monitor that alerts on Telegram only when system state changes.
+# Role: Check gateway, executor, Bridge, disk, and memory health without spamming repeat failures.
+# Dependencies: Reads Docker/container status, Bridge HTTP health, disk and memory stats,
+# ops.db presence, and prior state from /root/.openclaw/stability-state.json; writes log/state
+# under /root/.openclaw and sends Telegram alerts via `telegram-resolve` + messaging tools.
+# Key patterns: Delta-based restart detection compares current restart counters to saved state;
+# notification flow is stateful and change-only, so healthy-to-bad and bad-to-changed transitions
+# alert once while repeated unchanged failures stay quiet; exit codes distinguish monitor failure
+# from monitored-system failure for cron visibility.
+# Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -uo pipefail
 
