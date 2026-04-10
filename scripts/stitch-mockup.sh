@@ -106,28 +106,57 @@ if [ "$OK" = "true" ]; then
     echo "$RESULT" > "$MOCKUP_DIR/stitch-$TIMESTAMP.json"
     echo "Stitch output saved: $MOCKUP_DIR/stitch-$TIMESTAMP.json"
 
-    # Extract HTML if available
+    # Extract HTML and design system from Stitch response
     echo "$RESULT" | python3 -c "
-import json, sys
+import json, sys, urllib.request, os
+
 data = json.loads(sys.stdin.read())
-screen = data.get('screen', {})
-# Try to find HTML content in the response
-comps = screen.get('outputComponents', [])
+comps = data.get('screen', {}).get('outputComponents', [])
+project_dir = '$DESIGN_DIR'
+mockup_dir = '$MOCKUP_DIR'
+timestamp = '$TIMESTAMP'
+
 for c in comps:
-    s = c.get('screen', {})
-    if s.get('htmlUri'):
-        print(f'HTML URI: {s[\"htmlUri\"]}')
-    ds = c.get('designSystem', {}).get('designSystem', {})
-    if ds:
-        print(f'Design System: {ds.get(\"displayName\",\"unnamed\")}')
-        theme = ds.get('theme', {})
+    # Extract design system
+    ds_data = c.get('designSystem', {}).get('designSystem', {})
+    if ds_data:
+        name = ds_data.get('displayName', 'unnamed')
+        theme = ds_data.get('theme', {})
+        print(f'Design System: {name}')
         print(f'Theme: {theme.get(\"colorMode\",\"?\")} / font={theme.get(\"bodyFont\",\"?\")} / color={theme.get(\"customColor\",\"?\")}')
-        # Save design system markdown if present
         design_md = theme.get('designMd', '')
         if design_md:
-            with open('$MOCKUP_DIR/design-system-$TIMESTAMP.md', 'w') as f:
+            with open(f'{mockup_dir}/design-system-{timestamp}.md', 'w') as f:
                 f.write(design_md)
-            print(f'Design system saved: $MOCKUP_DIR/design-system-$TIMESTAMP.md')
+            print(f'Design system saved: {mockup_dir}/design-system-{timestamp}.md')
+
+    # Extract HTML from design component
+    design = c.get('design')
+    if design:
+        for screen in design.get('screens', []):
+            html_code = screen.get('htmlCode', '')
+            html_content = ''
+
+            # htmlCode can be a string (inline) or dict (download URL)
+            if isinstance(html_code, str) and html_code.strip().startswith('<'):
+                html_content = html_code
+            elif isinstance(html_code, dict) and html_code.get('downloadUrl'):
+                url = html_code['downloadUrl']
+                print(f'Downloading HTML from Stitch hosted URL...')
+                try:
+                    resp = urllib.request.urlopen(url)
+                    html_content = resp.read().decode('utf-8')
+                    print(f'Downloaded: {len(html_content)} chars')
+                except Exception as e:
+                    print(f'Download failed: {e}')
+
+            if html_content and len(html_content) > 50:
+                html_path = os.path.join(project_dir, 'index.html')
+                with open(html_path, 'w') as f:
+                    f.write(html_content)
+                print(f'HTML saved: {html_path} ({len(html_content)} chars)')
+            else:
+                print(f'No usable HTML found (htmlCode type: {type(html_code).__name__}, len: {len(str(html_code))})')
 " 2>/dev/null
 
     # Update ops.db
