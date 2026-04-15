@@ -175,17 +175,26 @@ print(count)
 conn.close()
 " 2>/dev/null) || PENDING_REAUTH=0
     if [ "$PENDING_REAUTH" = "0" ]; then
-      python3 -c "
+      # Step 1: Try sync first (no human needed — copies host CLI tokens to gateway)
+      log "ALERT: Codex OAuth failure detected — attempting auto-sync"
+      SYNC_RESULT=$(/root/.openclaw/scripts/sync-codex-auth.sh 2>&1) || true
+      if echo "$SYNC_RESULT" | grep -q "Tokens synced"; then
+        log "AUTO-HEALED: Codex tokens synced from host CLI to gateway (no human needed)"
+        ALERTS="${ALERTS}Codex OAuth auto-healed — tokens synced from host CLI. "
+      else
+        # Step 2: Sync failed (host tokens also expired) — send reauth link to Telegram
+        python3 -c "
 import sqlite3
 conn = sqlite3.connect('$OPS_DB')
 conn.execute('PRAGMA busy_timeout=5000')
-conn.execute('''INSERT INTO tasks (agent, task, meta, urgency) VALUES (?, ?, ?, ?)''',
-    ('stability-monitor', 'codex-reauth', '{\"host_op\":\"codex-reauth\",\"auto\":true}', 'critical'))
+conn.execute('''INSERT INTO tasks (agent, task, meta, urgency, status) VALUES (?, ?, ?, ?, 'pending')''',
+    ('stability-monitor', 'Codex reauth (auto-sync failed, need human auth)', '{\"host_op\":\"codex-reauth-telegram\",\"chat_id\":\"8561305605\",\"auto\":true}', 'critical'))
 conn.commit()
 conn.close()
 " 2>/dev/null
-      ALERTS="${ALERTS}Codex OAuth errors detected (${CODEX_ERRORS}x in 5 min) — auto-reauth triggered. "
-      log "ALERT: Codex OAuth failure detected, reauth task created"
+        ALERTS="${ALERTS}Codex OAuth errors detected — auto-sync failed, reauth link sent to Telegram. "
+        log "ALERT: Codex auto-sync failed, reauth-telegram task created"
+      fi
     else
       log "INFO: Codex OAuth errors detected but reauth already pending"
     fi
@@ -388,9 +397,8 @@ if ! ps aux | grep "[t]elegram-listener.py" | grep -qv grep; then
 fi
 
 # Check 13: Bridge dashboards (alert only — manual restart, may be intentionally stopped)
-# bridge-corinne was consolidated into bridge-unified (one process, ports 8082+8084)
-# Check by service name, not by process grep
-for SVC in openclaw-bridge-unified openclaw-bridge-dev; do
+# Bridge runs as openclaw-bridge-dev (ports 8082+8083+8084 via BRIDGE_PORTS env)
+for SVC in openclaw-bridge-dev; do
   if ! systemctl is-active --quiet "$SVC" 2>/dev/null; then
     ALERTS="${ALERTS}${SVC} is DOWN. "
     log "ALERT: ${SVC} down"

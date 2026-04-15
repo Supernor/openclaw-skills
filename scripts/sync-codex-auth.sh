@@ -75,16 +75,12 @@ fi
 
 log "Tokens synced to gateway auth-profiles"
 
-# Restart gateway to pick up new tokens
-docker compose -f /root/openclaw/docker-compose.yml restart openclaw-gateway 2>&1 | tail -2
-sleep 5
-
-# Verify gateway is healthy
-HEALTH=$(docker compose -f /root/openclaw/docker-compose.yml ps openclaw-gateway --format '{{.Status}}' 2>/dev/null)
-if echo "$HEALTH" | grep -q "healthy"; then
+# Restart gateway safely (notifies user, polls for health)
+/root/.openclaw/scripts/gateway-restart-safe.sh "8561305605" "Codex tokens synced" 2>&1 | tail -3
+if [ $? -eq 0 ]; then
     log "Gateway restarted and healthy"
     echo "SUCCESS: Codex tokens synced, gateway healthy"
 else
-    log "WARNING: Gateway may not be healthy after restart: $HEALTH"
-    echo "WARNING: Check gateway status — $HEALTH"
+    log "WARNING: Gateway restart may have issues"
+    echo "WARNING: Check gateway status"
 fi
