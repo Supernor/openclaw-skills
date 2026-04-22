@@ -48,6 +48,58 @@ SELECT '#' || id || ' ' || agent || ': ' || substr(task,1,60)
 FROM tasks WHERE status='completed' AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') > datetime('now', '-24 hours')
 ORDER BY id DESC LIMIT 10" 2>/dev/null | tr '\n' '; ')
 
+# Active intents — what's being worked on right now (from intent system)
+ACTIVE_INTENTS=$(python3 /root/.openclaw/scripts/intent-handoff.py recent --limit 5 2>/dev/null | python3 -c "
+import json,sys
+try:
+    data = json.load(sys.stdin)
+    for i in data:
+        print(f\"- [{i['stage']}] {i['title']} (via {i['source_method']})\")
+except: pass" 2>/dev/null)
+if [ -z "$ACTIVE_INTENTS" ]; then
+  ACTIVE_INTENTS="(none — check intent-handoff.py recent)"
+fi
+
+# Critical procedures from Chartroom — high-importance operational rules agents MUST know
+# Why: new procedures get charted but don't reach agents until someone updates workspace files.
+# This pulls them automatically so Captain can inject them during review.
+# Uses chart search (vector similarity) since chart list caps at 500 and we have 900+ charts.
+# Two strategies: (1) search for recent procedure/policy charts, (2) search by common topics
+CRITICAL_PROCEDURES=""
+for keyword in "NEVER ALWAYS procedure" "bridge restart systemctl" "policy critical operational" "decision model routing"; do
+  HITS=$(/usr/local/bin/chart search "$keyword" 2>/dev/null | head -5 | awk '
+    ($2 == "procedure" || $2 == "policy" || $2 == "decision") && $1+0 >= 0.5 {
+      print "- (chart: " $3 ")"
+    }')
+  [ -n "$HITS" ] && CRITICAL_PROCEDURES="${CRITICAL_PROCEDURES}${HITS}"$'\n'
+done
+# Also search for charts discovered in the last 7 days (catches newly charted procedures)
+RECENT_CHARTS=$(/usr/local/bin/chart search "Discovered $(date +%Y-%m)" 2>/dev/null | head -10 | awk '
+  ($2 == "procedure" || $2 == "policy" || $2 == "decision" || $2 == "reading") && $1+0 >= 0.5 {
+    print "- [RECENT] (chart: " $3 ")"
+  }' 2>/dev/null)
+[ -n "$RECENT_CHARTS" ] && CRITICAL_PROCEDURES="${CRITICAL_PROCEDURES}${RECENT_CHARTS}"$'\n'
+# Deduplicate
+CRITICAL_PROCEDURES=$(echo "$CRITICAL_PROCEDURES" | sort -u | grep -v "^$" | head -15)
+if [ -z "$CRITICAL_PROCEDURES" ]; then
+  CRITICAL_PROCEDURES="(none found — check chart search)"
+fi
+
+# Workspace freshness — which agents are most stale (priority targets for Phase 2)
+STALE_AGENTS=$(python3 /root/.openclaw/scripts/workspace-freshness-scanner.py --json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    data = json.load(sys.stdin)
+    results = sorted(data.get('results',[]), key=lambda x: x.get('freshness_score',10))
+    for r in results[:5]:
+        stale = [f for f,v in r.get('files',{}).items() if v.get('stale')]
+        if stale:
+            print(f\"- {r['agent_name']} ({r['agent_id']}): score={r['freshness_score']:.0f}/10, stale: {', '.join(stale)}\")
+except: pass" 2>/dev/null)
+if [ -z "$STALE_AGENTS" ]; then
+  STALE_AGENTS="(scanner unavailable — review all agents)"
+fi
+
 # Current architecture facts
 ARCH_FACTS="Task execution: host-ops-executor (systemd, 30s poll) for host_op tasks. task-runner (cron 15m) for generic tasks.
 Concurrency cap: 2 system-wide. Circuit breaker: 3 failures/hour.
@@ -55,13 +107,24 @@ Self-decomposition: failed tasks output JSON subtasks.
 Agents access system state via Bridge API (browser tool) at localhost:8082."
 
 # --- Build the school briefing ---
+# Priority ordered: most critical first. Agents weight top content higher.
 BRIEFING="# System Update — $(date +%Y-%m-%d)
 
-## Tools Available
-$MCP_TOOLS
+## Critical Procedures (from Chartroom — must be in agent workspaces)
+These are high-importance operational rules. If any are missing from an agent's TOOLS.md, add them.
+$CRITICAL_PROCEDURES
+
+## Active Intents (what Robert is working on — context for all agents)
+$ACTIVE_INTENTS
+
+## Stale Agents (priority targets for workspace review)
+$STALE_AGENTS
 
 ## Bridge (Command Center)
 $BRIDGE_INFO
+
+## Tools Available
+$MCP_TOOLS
 
 ## Engines
 $ENGINE_INFO
@@ -72,12 +135,11 @@ $RECENT
 ## Architecture
 $ARCH_FACTS
 
-## Rules
-- Check /api/tasks before starting work that might overlap
-- Check /api/bridge-state before restarting any service
-- Use subagents or sessions_send to collaborate, not direct file edits
-- Every interactive UI element uses Tactyl state machines (data-state)
-- All Bridge edits go to dev (:8083), never prod directly"
+## Workspace File Rules (how to structure updates)
+- Order by priority: most critical rules FIRST in each file. Agents weight top content higher.
+- Include WHY for each rule: 'NEVER do X — because Y (happened N times)' is stronger than 'NEVER do X'.
+- Short rules inline (5 lines or less). Longer context: add '(chart: <id>)' reference.
+- Section by frequency: most-used tools/procedures first, rare stuff at bottom or chart-only."
 
 # --- Update each agent's workspace ---
 # Dynamic: scan for all workspace directories (never hardcode — agents change)
@@ -122,30 +184,55 @@ if (( $(echo "$LOAD2 > 2.5" | bc -l 2>/dev/null || echo 0) )); then
   exit 0
 fi
 
+# Build Phase 2 context with freshness + critical procedures data
+# Write to temp file to avoid SQL quoting issues
+SCHOOL_CONTEXT_FILE="/tmp/captain-school-context.txt"
+cat > "$SCHOOL_CONTEXT_FILE" << 'CTXEOF'
+Nightly school session — priority-driven workspace review.
+
+WORKSPACE FILE RULES (apply to every edit you make):
+1. Order by priority: most critical rules FIRST. Agents weight top content higher.
+2. Include WHY: "NEVER do X — because Y (happened N times)" > "NEVER do X".
+3. Short rules inline (5 lines max). Longer context: add "(chart: <id>)" reference.
+4. Section by frequency: most-used procedures first, rare stuff at bottom.
+
+STEPS (strict 15 min — stop after step 3 if time is short):
+1. Read HEARTBEAT.md — it has today's critical procedures, stale agents, and active intents.
+2. Pick the MOST STALE agent from the Stale Agents list. Read their TOOLS.md.
+3. Check: are the critical procedures from HEARTBEAT.md present in that agent's TOOLS.md? If not, add them (with WHY and chart reference). Priority-order the file.
+4. If time remains, pick the next stale agent and repeat.
+5. Chart results as school-review-YYYY-MM-DD.
+
+DO NOT: rewrite entire files. DO: surgical additions of missing critical procedures, ordered by importance.
+CTXEOF
+
+SCHOOL_CONTEXT=$(cat "$SCHOOL_CONTEXT_FILE")
+
 # Create a task for the host-ops-executor to dispatch Captain
 sqlite3 /root/.openclaw/ops.db "INSERT INTO tasks (agent, urgency, status, task, context, meta) VALUES (
   'main', 'routine', 'pending',
-  'Captain school: run tool-audit skill + review agent workspaces',
-  'Nightly school session. Step 1: Run your tool-audit skill (skills/tool-audit/SKILL.md) to verify all agents know their MCP tools. Step 2: Review TOOLS.md and SOUL.md for active agents. Step 3: Call capabilities to get the LIVE tool list — never hardcode tool names. Step 4: For any agent missing tools, add pointer to docs/mcp-tools-reference.md and key tool names. Step 5: Chart results as tool-audit-YYYY-MM-DD. Focus on agents with recent activity (use ops_query). Keep changes minimal.',
-  '{\"host_op\": \"reactor-dispatch\", \"agent\": \"main\", \"prompt\": \"You are Captain. This is your nightly school session. Review the workspace files for Relay, Dev, Ops Officer, and Scribe. Use chart_search_compact to find what changed today. Use browser tool to GET http://localhost:8082/api/tasks to see recent completed tasks. Update each agents TOOLS.md with current system capabilities. Remove stale references. Add missing tools. Keep it concise.\", \"telegram_chat_id\": \"8561305605\"}'
+  'Nightly: Captain school micro-pass (strict 15m; stop after step 3). Do ONLY: 1) Read HEARTBEAT.md for critical procedures + stale agents. 2) Update the most-stale agent TOOLS.md with missing critical procedures (priority-ordered, with WHY). 3) Chart what you changed.',
+  '$(echo "$SCHOOL_CONTEXT" | sed "s/'/'''/g")',
+  '{\"host_op\": \"reactor-dispatch\", \"agent\": \"main\", \"prompt\": \"You are Captain. This is your nightly school session. Read your HEARTBEAT.md first — it has critical procedures from Chartroom, stale agent targets, and active intents. Pick the most-stale agent and update their TOOLS.md with missing procedures. Priority-order the file. Include WHY for each rule. Use chart references for depth. Keep changes surgical. Stop after 15 min.\", \"telegram_chat_id\": \"8561305605\"}'
 );"
 
-log "Phase 2 task queued — Captain will review workspaces when executor picks it up"
+log "Phase 2 task queued — Captain will review most-stale agent workspace"
 
 # --- Phase 3: Realist reviews Captain's changes ---
 log "Phase 3: Dispatching Realist to audit Captain's school session"
 
 sqlite3 /root/.openclaw/ops.db "INSERT INTO tasks (agent, urgency, status, task, context, meta) VALUES (
   'spec-realist', 'routine', 'pending',
-  'Realist audit: review Captain school session changes',
+  'Realist audit: verify Captain school changes are accurate and well-structured',
   'Captain just updated agent workspace files during the nightly school session.
-Your job: verify the changes are accurate, not hallucinated, and actually help.
-Check: 1) Are the tools listed in TOOLS.md actually available? Test with browser GET http://localhost:8082/api/health
-2) Are the architecture claims in HEARTBEAT.md correct? Cross-reference with chart_search.
-3) Did Captain miss any agents that need updates?
-4) Is Captains own SOUL.md or workspace stale?
+Your job: verify the changes are accurate, not hallucinated, and well-structured.
+Check: 1) Are procedures Captain added actually correct? Cross-reference with chart_search (read the chart, dont guess).
+2) Are they priority-ordered? Most critical rules should be FIRST in the file.
+3) Does each rule have a WHY? Rules without why are weak — flag them.
+4) Did Captain pick the right agent? Check HEARTBEAT.md stale agents list.
+5) Is the agents TOOLS.md now over 20K chars? If so, move lower-priority items to chart references.
 If you find issues, chart them as issue-school-YYYY-MM-DD and create a fix task via ops_insert_task.',
-  '{\"host_op\": \"reactor-dispatch\", \"agent\": \"spec-realist\", \"prompt\": \"You are The Realist. Captain just ran a school session updating agent workspaces. Audit the changes. Use chart_search_compact to check recent changes. Use browser to GET http://localhost:8082/api/tasks to see what Captain completed. Verify accuracy. If you find errors, use chart_add to flag them and create fix tasks.\", \"telegram_chat_id\": \"8561305605\"}'
+  '{\"host_op\": \"reactor-dispatch\", \"agent\": \"spec-realist\", \"prompt\": \"You are The Realist. Captain just ran a school session. Audit the workspace changes for accuracy and structure. Use chart_search_compact to verify any procedures Captain added. Check priority ordering (critical first). Check that rules have WHY context. Flag missing WHY or wrong ordering. Keep your audit brief — chart issues, do not rewrite files yourself.\", \"telegram_chat_id\": \"8561305605\"}'
 );"
 
 log "Phase 3 task queued — Realist will audit when executor picks it up"
