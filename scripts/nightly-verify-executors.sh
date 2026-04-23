@@ -6,7 +6,7 @@
 # Checks:
 #   1. task-runner.py has _resolve_home and _resolve_compose path resolvers
 #   2. task-runner.py has check_agent_session_lock branch
-#   3. host-ops-executor.py has fairness query (LIMIT 1)
+#   3. host-ops-executor.py fetches one pending host_op task with fairness ordering
 #
 # Exit 0 if all pass, exit 1 if any fail. Output: one line per check.
 set -eo pipefail
@@ -45,10 +45,12 @@ check "task-runner: _resolve_compose path resolver"  "$TASK_RUNNER" 'def _resolv
 check "task-runner: session-lock branch"             "$TASK_RUNNER" 'check_agent_session_lock'
 
 # --- host-ops-executor.py checks ---
-check "host-ops: fairness query (LIMIT 1)"          "$HOST_OPS"    'ORDER BY id ASC LIMIT 1'
+check "host-ops: pending host_op fairness query"    "$HOST_OPS"    "WHERE status='pending' AND meta IS NOT NULL"
+check "host-ops: host_op JSON filter"               "$HOST_OPS"    "json_extract\\(meta, '\\$\\.host_op'\\) IS NOT NULL"
+check "host-ops: urgency + FIFO ordering"           "$HOST_OPS"    "ORDER BY CASE urgency .* id ASC LIMIT 1"
 
 # --- Summary ---
-TOTAL=4
+TOTAL=6
 PASSED=$((TOTAL - FAILURES))
 echo "--- ${PASSED}/${TOTAL} passed ---"
 [ "$FAILURES" -eq 0 ] && exit 0 || exit 1

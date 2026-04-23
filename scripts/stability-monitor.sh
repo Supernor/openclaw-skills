@@ -396,12 +396,30 @@ if ! ps aux | grep "[t]elegram-listener.py" | grep -qv grep; then
   log "ALERT: telegram-listener down"
 fi
 
-# Check 13: Bridge dashboards (alert only — manual restart, may be intentionally stopped)
+# Check 13: Bridge dashboards
 # Bridge runs as openclaw-bridge-dev (ports 8082+8083+8084 via BRIDGE_PORTS env)
+# NEVER use openclaw-bridge.service (old, single-port — disabled 2026-04-22 after overnight crash-loop)
+# Why: two services fighting for port 8082 caused all-night crash-loop + Relay spam
 for SVC in openclaw-bridge-dev; do
   if ! systemctl is-active --quiet "$SVC" 2>/dev/null; then
-    ALERTS="${ALERTS}${SVC} is DOWN. "
-    log "ALERT: ${SVC} down"
+    # Try auto-fix: kill any stale python dashboard-api.py holding ports, then restart
+    STALE_PIDS=$(fuser 8082/tcp 2>/dev/null | tr -s ' ')
+    if [ -n "$STALE_PIDS" ]; then
+      log "Bridge port 8082 held by stale PID(s): $STALE_PIDS — killing before restart"
+      kill -9 $STALE_PIDS 2>/dev/null
+      sleep 2
+    fi
+    # Also ensure old bridge service isn't running (it was disabled but check anyway)
+    systemctl stop openclaw-bridge.service 2>/dev/null
+    systemctl restart "$SVC" 2>/dev/null
+    sleep 3
+    if systemctl is-active --quiet "$SVC" 2>/dev/null; then
+      RECOVERED="${RECOVERED}Bridge auto-recovered (killed stale port holder + restarted). "
+      log "RECOVERY: Bridge auto-recovered"
+    else
+      ALERTS="${ALERTS}${SVC} is DOWN (auto-restart failed). "
+      log "ALERT: ${SVC} down — auto-restart failed"
+    fi
   fi
 done
 
