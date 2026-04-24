@@ -11,14 +11,36 @@ CANONICAL_KEYS=(
   OPENCLAW_PROD_GOOGLE_AI_KEY
   OPENCLAW_PROD_OPENROUTER_KEY
   OPENAI_API_KEY
+  TELEGRAM_BOT_TOKEN_ROBERT
+  TELEGRAM_BOT_TOKEN_CORINNE
+  TELEGRAM_BOT_TOKEN_SCRIBE
+  TELEGRAM_BOT_TOKEN_TAP
+  NVIDIA_NIM_API_KEY
+  GEMINI_FREE_API_KEY
+  OPENCLAW_GOOGLE_PRO_KEY
+  CLOUDFLARE_API_TOKEN
 )
+# 15 canonical keys. Updated 2026-04-23 from actual /root/openclaw/.env contents.
+# Why: nightly alert flagged false positive because canonical list was stale (only 7 keys).
 
 EXCLUDED_KEYS=(
   OPENCLAW_PROD_DISCORD_APP_ID
   OPENCLAW_PROD_SAG_KEY
+  OPENCLAW_IMAGE
+  OPENCLAW_CONFIG_DIR
+  OPENCLAW_WORKSPACE_DIR
+  OPENCLAW_EXTENSIONS
+  OPENCLAW_GATEWAY_PORT
+  OPENCLAW_GATEWAY_BIND
+  OPENCLAW_BRIDGE_PORT
+  OPENCLAW_DOCKER_APT_PACKAGES
+  CLOUDFLARE_ACCOUNT_ID
 )
+# Excluded: config values that aren't secrets (ports, paths, feature flags)
 
-ENV_FILE="${1:-/app/.env}"
+# Fixed: /app/.env doesn't exist inside the container. The real env file is on the host.
+# Why: the gateway gets env vars via docker-compose environment config, not a file at /app/
+ENV_FILE="${1:-/root/openclaw/.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo '{"status":"ERROR","message":"env file not found","file":"'"$ENV_FILE"'"}'
