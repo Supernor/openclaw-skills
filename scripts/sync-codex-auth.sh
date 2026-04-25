@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Alignment: sync Codex CLI OAuth state into gateway auth profiles, then restart.
+# sync-codex-auth.sh — SYNC ONLY: copies host CLI tokens into gateway auth-profiles.
+#
+# NOTE FOR AGENTS: This is the SYNC step only. If you're trying to FIX Codex auth,
+# use fix-codex-auth.sh instead — it checks host tokens first and calls this script
+# if they're valid, or runs full reauth if they're not.
+#
+#   fix-codex-auth.sh  ← start here (auto-detects and fixes)
+#   sync-codex-auth.sh ← you are here (sync only, assumes host tokens are valid)
+#   codex-reauth-telegram.sh ← full reauth flow (sends link to Robert)
+#
 # Role: keeps gateway authentication aligned with fresh Codex CLI reauth state.
-# Dependencies: reads ~/.codex/auth.json, writes
-# /root/.openclaw/agents/main/agent/auth-profiles.json, logs to
-# /root/.openclaw/logs/sync-codex-auth.log, and calls docker restart on gateway.
-# Key pattern: CLI remains source of truth; this script copies only the needed
-# token fields into gateway state so CLI reauth does not leave gateway stale.
-# Behavioral guard: fail fast if either auth file is missing, append timestamped
-# logs for auditability, and restart gateway only after sync completes.
+# Dependencies: reads ~/.codex/auth.json, writes auth-profiles.json, restarts gateway.
 # Reference: /root/.openclaw/docs/policy-context-injection.md
 
 set -eo pipefail

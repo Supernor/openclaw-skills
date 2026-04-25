@@ -176,8 +176,8 @@ echo "  Active agents (with pending/in_progress): $AGENT_COUNT"
 
 # ── SECTION 4: Engine Health (can models respond?) ──
 echo ""; echo "--- Engine Health ---"
-CODEX_RECENT=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM engine_usage WHERE engine='codex' AND timestamp > datetime('now', '-4 hours')" 2>/dev/null || echo 0)
-CODEX_OK=$(sqlite3 "$OPS_DB" "SELECT SUM(success) FROM engine_usage WHERE engine='codex' AND timestamp > datetime('now', '-4 hours')" 2>/dev/null || echo 0)
+CODEX_RECENT=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM engine_usage WHERE engine='codex' AND ts > datetime('now', '-4 hours')" 2>/dev/null || echo 0)
+CODEX_OK=$(sqlite3 "$OPS_DB" "SELECT SUM(success) FROM engine_usage WHERE engine='codex' AND ts > datetime('now', '-4 hours')" 2>/dev/null || echo 0)
 echo "  Codex (4h): ${CODEX_OK:-0}/${CODEX_RECENT:-0} success"
 if [ "${CODEX_RECENT:-0}" -gt 3 ] && [ "${CODEX_OK:-0}" -eq 0 ]; then
   issue "Codex failing: 0/${CODEX_RECENT} in 4h" "OAuth expired or rate limited" "codex login status. If expired: create codex-reauth task"

@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
-# Alignment: one-tap Codex OAuth reauth triggered from Telegram.
-# Role: Relay or Eoin sends /reauth → this script runs, sends device auth URL to Telegram,
+# codex-reauth-telegram.sh — FULL REAUTH: device auth flow + Telegram notification + gateway sync.
+#
+# NOTE FOR AGENTS: Unless you specifically need the full reauth flow, start with
+# fix-codex-auth.sh instead — it checks if host tokens are still valid first
+# (fast 30s sync) and only falls through to this script if they're actually expired.
+#
+#   fix-codex-auth.sh             <- START HERE (auto-detects and picks the right path)
+#   codex-reauth-telegram.sh      <- you are here (full reauth, sends link to Robert)
+#   sync-codex-auth.sh            <- sync-only (host tokens already valid)
+#
+# Role: Relay or Eoin sends /reauth -> this script runs, sends device auth URL to Telegram,
 # user taps the link on their phone, auth completes, gateway synced.
 # Dependencies: codex CLI, sync-codex-auth.sh, Telegram bot token.
 # Usage: codex-reauth-telegram.sh [chat_id]

@@ -29,7 +29,7 @@ PUPPETEER_CORE="/root/.npm/_npx/7d92d9a2d2ccc630/node_modules/puppeteer-core/lib
 TIMESTAMP=$(date -u +%Y-%m-%d-%H%M)
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-24}"  # Auto-prune screenshots older than this
 
-ALL_SECTIONS="health activity workshop board feedback agents"
+ALL_SECTIONS="updates learn health ops activity newidea board design inspect workshop assembly feedback agents systemmap issues pipeline truth settings"
 
 log() { echo "[$(date -u +%H:%M:%S)] $1"; }
 
