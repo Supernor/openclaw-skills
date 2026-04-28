@@ -68,6 +68,10 @@ check "historical_explained" \
     "$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM deferred_action_annotations WHERE superseded_by IS NULL;")" \
     "$(api_val historical_explained)"
 
+check "stale_claims_recovered_24h" \
+    "$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM intent_audit WHERE field_changed='stale_claim_recovered' AND changed_at > datetime('now', '-24 hours');")" \
+    "$(api_val stale_claims_recovered_24h)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

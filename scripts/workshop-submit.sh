@@ -31,6 +31,23 @@ case "$URGENCY" in
   *) echo "Error: urgency must be routine, blocking, or critical" >&2; exit 1 ;;
 esac
 
+# Validate host_op against known handlers
+# WHY: Invalid host_ops create tasks that block forever with "Unknown host operation" error.
+# DO THIS: Use one of the valid ops listed below.
+# VERIFY: grep -c "\"$HOST_OP\"" /root/.openclaw/scripts/host-ops-executor.py
+VALID_OPS="bridge-edit bridge-style codex-reauth codex-run deploy-preview deploy-production gateway-health gateway-restart gauntlet-run gemini-run gemini-search lighthouse reactor-dispatch reactor-execute reactor-plan reactor-status reactor-stop reactor-undo scaffold-site screenshot stitch-mockup"
+VALID=false
+for op in $VALID_OPS; do
+  if [ "$HOST_OP" = "$op" ]; then VALID=true; break; fi
+done
+if ! $VALID; then
+  echo "ERROR: Invalid host_op '$HOST_OP'" >&2
+  echo "WHY: This operation name doesn't match any registered handler in host-ops-executor.py." >&2
+  echo "DO THIS: Use one of: $VALID_OPS" >&2
+  echo "VERIFY: grep '\"$HOST_OP\"' /root/.openclaw/scripts/host-ops-executor.py" >&2
+  exit 1
+fi
+
 # Find ops.db
 OPS_DB="/root/.openclaw/ops.db"
 if [ ! -f "$OPS_DB" ]; then
