@@ -131,7 +131,7 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
   HEALTH=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway openclaw health 2>/dev/null | grep -v "level=warning") || { log "CHECK FAILED: openclaw health"; CHECK_ERRORS=$((CHECK_ERRORS+1)); HEALTH="HEALTH_CHECK_FAILED"; }
 
   # Telegram bot status
-  if echo "$HEALTH" | grep -q "Telegram: ok"; then
+  if echo "$HEALTH" | grep -qE "Telegram: (ok|configured|connected|running)"; then
     if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('telegram')=='down' else 1)" 2>/dev/null; then
       RECOVERED="${RECOVERED}Telegram bot recovered. "
     fi
@@ -141,7 +141,7 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
   fi
 
   # Discord bot status
-  if echo "$HEALTH" | grep -q "Discord: ok"; then
+  if echo "$HEALTH" | grep -qE "Discord: (ok|configured|connected|running)"; then
     if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('discord')=='down' else 1)" 2>/dev/null; then
       RECOVERED="${RECOVERED}Discord bot recovered. "
     fi
