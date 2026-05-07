@@ -20,7 +20,7 @@ CANONICAL_KEYS=(
   OPENCLAW_GOOGLE_PRO_KEY
   CLOUDFLARE_API_TOKEN
 )
-# 15 canonical keys. Updated 2026-04-23 from actual /root/openclaw/.env contents.
+# 15 canonical keys. Updated 2026-04-23 from actual /tmp/.env contents.
 # Why: nightly alert flagged false positive because canonical list was stale (only 7 keys).
 
 EXCLUDED_KEYS=(
@@ -40,7 +40,7 @@ EXCLUDED_KEYS=(
 
 # Fixed: /app/.env doesn't exist inside the container. The real env file is on the host.
 # Why: the gateway gets env vars via docker-compose environment config, not a file at /app/
-ENV_FILE="${1:-/root/openclaw/.env}"
+ENV_FILE="${1:-/tmp/.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo '{"status":"ERROR","message":"env file not found","file":"'"$ENV_FILE"'"}'

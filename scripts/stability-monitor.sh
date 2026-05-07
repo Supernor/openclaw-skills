@@ -18,6 +18,8 @@ OPS_DB="/root/.openclaw/ops.db"
 TELEGRAM_TARGET=$(telegram-resolve robert)
 DISCORD_OPS_ALERTS="1477754571697688627"
 CONTAINER="openclaw-openclaw-gateway-1"
+HEALTH_PROBE_ATTEMPTS=3
+HEALTH_PROBE_DELAY_SECONDS=2
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG"; }
 
@@ -79,6 +81,41 @@ telegram_direct() {
     -d parse_mode=Markdown >/dev/null 2>&1
 }
 
+probe_gateway_health() {
+  local attempt output tg_ok dc_ok
+  PROBED_HEALTH=""
+  HEALTH_PROBE_MODE="command_failed"
+
+  for attempt in $(seq 1 "$HEALTH_PROBE_ATTEMPTS"); do
+    output=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway openclaw health 2>/dev/null | grep -v "level=warning")
+    if [ $? -eq 0 ]; then
+      HEALTH_PROBE_MODE="unhealthy"
+      tg_ok=0
+      dc_ok=0
+      echo "$output" | grep -qE "Telegram: (ok|configured|connected|running)" && tg_ok=1
+      echo "$output" | grep -qE "Discord: (ok|configured|connected|running)" && dc_ok=1
+
+      if [ "$tg_ok" -eq 1 ] && [ "$dc_ok" -eq 1 ]; then
+        [ "$attempt" -gt 1 ] && log "HEALTH: Gateway probe recovered on attempt $attempt/$HEALTH_PROBE_ATTEMPTS"
+        HEALTH_PROBE_MODE="healthy"
+        PROBED_HEALTH="$output"
+        return 0
+      fi
+
+      log "HEALTH: Gateway probe attempt $attempt/$HEALTH_PROBE_ATTEMPTS still unhealthy (telegram=$tg_ok discord=$dc_ok)"
+    else
+      log "HEALTH: Gateway probe attempt $attempt/$HEALTH_PROBE_ATTEMPTS failed to execute"
+    fi
+
+    if [ "$attempt" -lt "$HEALTH_PROBE_ATTEMPTS" ]; then
+      sleep "$HEALTH_PROBE_DELAY_SECONDS"
+    fi
+  done
+
+  PROBED_HEALTH="$output"
+  return 1
+}
+
 CHECK_ERRORS=0
 
 # Initialize state file if missing
@@ -128,7 +165,13 @@ fi
 
 # Check 2: Is the gateway healthy? (only if container is running)
 if [ "$CONTAINER_STATUS" = "running" ]; then
-  HEALTH=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway openclaw health 2>/dev/null | grep -v "level=warning") || { log "CHECK FAILED: openclaw health"; CHECK_ERRORS=$((CHECK_ERRORS+1)); HEALTH="HEALTH_CHECK_FAILED"; }
+  probe_gateway_health
+  HEALTH="$PROBED_HEALTH"
+  if [ "$HEALTH_PROBE_MODE" = "command_failed" ]; then
+    log "CHECK FAILED: openclaw health"
+    CHECK_ERRORS=$((CHECK_ERRORS+1))
+    HEALTH="HEALTH_CHECK_FAILED"
+  fi
 
   # Telegram bot status
   if echo "$HEALTH" | grep -qE "Telegram: (ok|configured|connected|running)"; then
