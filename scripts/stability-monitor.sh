@@ -623,6 +623,14 @@ for pid in $(pgrep -f "vscode-server" 2>/dev/null); do
 done
 
 # Exit codes: 2=monitoring broken, 1=alerts found, 0=all healthy
-[ "$CHECK_ERRORS" -gt 0 ] && exit 2
-[ -n "$ALERTS" ] && exit 1
+# RESULT_LABEL tells cron-wrapper what the exit code MEANS (for agent analysis)
+if [ "$CHECK_ERRORS" -gt 0 ]; then
+  echo "RESULT_LABEL: monitor_error"
+  exit 2
+fi
+if [ -n "$ALERTS" ]; then
+  echo "RESULT_LABEL: alerted"
+  exit 1
+fi
+echo "RESULT_LABEL: healthy"
 exit 0
