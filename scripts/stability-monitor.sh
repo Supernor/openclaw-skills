@@ -81,10 +81,29 @@ telegram_direct() {
     -d parse_mode=Markdown >/dev/null 2>&1
 }
 
+# probe_gateway_health — Runs `openclaw health` up to HEALTH_PROBE_ATTEMPTS times.
+# Returns 0 (healthy) or 1 (unhealthy). Sets PROBED_HEALTH and HEALTH_PROBE_MODE.
+#
+# DESIGN DECISIONS (learned the hard way, 2026-05-18):
+# 1. Keep BEST probe result, not last. Gateway event loop pressure (max=13s delay)
+#    causes intermittent empty output on attempt 3/3, which made BOTH channels look
+#    down when only Discord was actually missing. See issue-false-alert-loop-20260518.
+# 2. Discord health line is OPTIONAL. Externalized plugins (@openclaw/discord from npm)
+#    don't produce a "Discord:" line in `openclaw health` output. The monitor must not
+#    require a status line that the gateway doesn't emit. If no "Discord:" line exists,
+#    treat as "not checked", not "down".
+# 3. Telegram delivery via telegram_direct() bypasses the gateway — it calls the
+#    Telegram Bot API directly via curl. This is intentional: alerts must work even
+#    when the thing being monitored is broken. But it means "Telegram bot is DOWN"
+#    alerts can be delivered via Telegram, which is confusing. The alert text should
+#    clarify what's actually down (gateway connection, not Telegram API).
 probe_gateway_health() {
-  local attempt output tg_ok dc_ok
+  local attempt output tg_ok dc_ok best_output best_tg best_dc
   PROBED_HEALTH=""
   HEALTH_PROBE_MODE="command_failed"
+  best_output=""
+  best_tg=0
+  best_dc=0
 
   for attempt in $(seq 1 "$HEALTH_PROBE_ATTEMPTS"); do
     output=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway openclaw health 2>/dev/null | grep -v "level=warning")
@@ -95,7 +114,19 @@ probe_gateway_health() {
       echo "$output" | grep -qE "Telegram: (ok|configured|connected|running)" && tg_ok=1
       echo "$output" | grep -qE "Discord: (ok|configured|connected|running)" && dc_ok=1
 
-      if [ "$tg_ok" -eq 1 ] && [ "$dc_ok" -eq 1 ]; then
+      # Keep best result across attempts (event loop pressure causes intermittent empty output)
+      if [ "$tg_ok" -ge "$best_tg" ]; then
+        best_tg=$tg_ok
+        best_output="$output"
+      fi
+      [ "$dc_ok" -gt "$best_dc" ] && best_dc=$dc_ok
+
+      # Discord health line may be absent for externalized plugins — treat missing as "not checked"
+      # Only require Discord if the health output actually reports a Discord status line
+      local dc_reported=0
+      echo "$output" | grep -qE "Discord:" && dc_reported=1
+
+      if [ "$tg_ok" -eq 1 ] && { [ "$dc_ok" -eq 1 ] || [ "$dc_reported" -eq 0 ]; }; then
         [ "$attempt" -gt 1 ] && log "HEALTH: Gateway probe recovered on attempt $attempt/$HEALTH_PROBE_ATTEMPTS"
         HEALTH_PROBE_MODE="healthy"
         PROBED_HEALTH="$output"
@@ -112,7 +143,8 @@ probe_gateway_health() {
     fi
   done
 
-  PROBED_HEALTH="$output"
+  # Use best output across all attempts, not just last (protects against intermittent empty responses)
+  PROBED_HEALTH="${best_output:-$output}"
   return 1
 }
 
@@ -174,23 +206,41 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
   fi
 
   # Telegram bot status
+  # What this checks: `openclaw health` output for "Telegram: (ok|configured|connected|running)"
+  # If missing: either (a) gateway event loop pressure caused empty output (transient, retry helped),
+  # or (b) Telegram plugin genuinely failed. Note: this alert is delivered via telegram_direct() which
+  # calls the Telegram API directly, bypassing the gateway. So receiving this alert via Telegram
+  # proves the Telegram API works — the issue is the GATEWAY'S connection, not Telegram itself.
   if echo "$HEALTH" | grep -qE "Telegram: (ok|configured|connected|running)"; then
     if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('telegram')=='down' else 1)" 2>/dev/null; then
       RECOVERED="${RECOVERED}Telegram bot recovered. "
     fi
   else
-    ALERTS="${ALERTS}Telegram bot is DOWN. "
-    log "ALERT: Telegram down"
+    ALERTS="${ALERTS}Telegram gateway connection is DOWN (Telegram API itself may be fine — this alert was sent directly). "
+    log "ALERT: Telegram down (gateway connection, not API — alert sent via telegram_direct)"
   fi
 
-  # Discord bot status
-  if echo "$HEALTH" | grep -qE "Discord: (ok|configured|connected|running)"; then
-    if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('discord')=='down' else 1)" 2>/dev/null; then
-      RECOVERED="${RECOVERED}Discord bot recovered. "
+  # Discord bot status — only alert if health output actually reports a Discord line.
+  # WHY CONDITIONAL: Since v2026.5.0, Discord is an externalized npm plugin (@openclaw/discord).
+  # If the plugin isn't loaded or version-mismatched, `openclaw health` emits NO "Discord:" line.
+  # Alerting on a missing line creates a permanent false-positive loop (see issue-false-alert-loop-20260518).
+  # If you see "Discord: <bad-status>" that's a real problem. If no Discord line at all, check:
+  #   1. Is plugin installed? `openclaw plugins list | grep discord`
+  #   2. Is plugin version compatible? Must be <= gateway version. See procedure-discord-plugin-update.
+  #   3. Check gateway logs for "[discord] channel exited" — SDK version mismatch.
+  # TWO DISCORD PATHS: Bot (via gateway plugin) handles DMs/channels. Webhooks (reactor-post.sh)
+  # handle ops updates independently. Robert may still see Discord updates even when bot is down.
+  if echo "$HEALTH" | grep -qE "Discord:"; then
+    if echo "$HEALTH" | grep -qE "Discord: (ok|configured|connected|running)"; then
+      if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('discord')=='down' else 1)" 2>/dev/null; then
+        RECOVERED="${RECOVERED}Discord bot recovered. "
+      fi
+    else
+      ALERTS="${ALERTS}Discord bot is DOWN (health line present but unhealthy). Check: docker compose logs openclaw-gateway | grep discord. "
+      log "ALERT: Discord down (health line present but not ok/configured/connected/running)"
     fi
   else
-    ALERTS="${ALERTS}Discord bot is DOWN. "
-    log "ALERT: Discord down"
+    log "INFO: No Discord health line — plugin may not be loaded. See procedure-discord-plugin-update chart."
   fi
 
   # Check 3: Rate limit storm detection (>10 errors in last 5 min)
