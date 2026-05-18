@@ -74,13 +74,14 @@ if [ "${EXISTING:-0}" -gt 0 ]; then
 fi
 
 # --- Step 3: Insert task for spec-github ---
-# The task tells Repo-Man to run the backup-suite skill: push tonight's backup to GitHub.
-# host_op=codex-run because it needs host filesystem access (reading /root/.openclaw/backups/).
+# host_op=backup-suite: golden script that runs all 3 backups + repo-health.
+# Zero tokens — no LLM needed. Always works regardless of Codex/model health.
+# Previous approach used codex-run which failed when Codex was degraded.
+# Changed to golden script 2026-05-18 for reliability.
 TASK_DESC="Nightly backup-suite: Push ${TODAY} backup to GitHub repos"
 CONTEXT="Triggered by post-backup-dispatch.sh after successful nightly backup. Backup dir: /root/.openclaw/backups/${TODAY}"
-PROMPT="Run the backup-suite: push tonight's backup (${TODAY}) to all 3 GitHub repos (openclaw-config, openclaw-workspace, openclaw-skills). Use /root/.openclaw/scripts/repo-health.sh to verify repos are fresh after push. Report: repos pushed, commit SHAs, any errors. IMPORTANT: After completing, append a line to /root/.openclaw/workspace-spec-github/LAST_RUN.md in format: TIMESTAMP | backup-suite | PASS/FAIL | summary"
 META=$(cat <<METAEOF
-{"host_op":"codex-run","agent":"spec-github","nightly":true,"timeout":600,"prompt":"${PROMPT}","telegram_chat_id":"${ROBERT_CHAT_ID}"}
+{"host_op":"backup-suite","agent":"spec-github","nightly":true,"timeout":300}
 METAEOF
 )
 
