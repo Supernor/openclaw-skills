@@ -24,7 +24,8 @@ When Robert sends a work request:
      "host_op": "reactor-plan",
      "subject": "{short title for the task}",
      "description": "{Robert's full request text}",
-     "telegram_chat_id": "{Robert's chat ID}"
+     "telegram_chat_id": "{Robert's chat ID}",
+     "issue_id": "{active intent ID if one is being worked on, omit otherwise}"
    }
    urgency: routine
    ```
