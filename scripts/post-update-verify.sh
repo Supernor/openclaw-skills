@@ -23,10 +23,34 @@
 
 set -uo pipefail
 
+AUTO_FIX=false
+[ "${1:-}" = "--auto-fix" ] && AUTO_FIX=true
+
 DC="docker compose -f /root/openclaw/docker-compose.yml"
 issues=()
+auto_fixed=()
 checks_passed=0
 checks_total=0
+
+try_fix() {
+    local check_name="$1" action="$2"
+    $AUTO_FIX || return 1
+    case "$check_name" in
+        codex_plugin)   timeout 15 $DC exec -T openclaw-gateway node dist/index.js doctor --fix --yes >/dev/null 2>&1 ;;
+        openclaw-host-ops)   systemctl restart openclaw-host-ops 2>&1 ;;
+        openclaw-bridge-dev) systemctl restart openclaw-bridge-dev 2>&1 ;;
+        container_health)    /root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "auto-fix: container_health" --force 2>&1 ;;
+        auth_health)         /root/.openclaw/scripts/codex-reauth-telegram.sh 8561305605 2>&1 ;;
+        *)                   return 1 ;;  # doctor, config_validate — skip
+    esac
+    local rc=$?
+    if [ $rc -eq 0 ]; then
+        auto_fixed+=("{\"check\":\"$check_name\",\"action\":\"$action\",\"success\":true}")
+    else
+        auto_fixed+=("{\"check\":\"$check_name\",\"action\":\"$action\",\"success\":false}")
+    fi
+    return $rc
+}
 
 check() {
     local name="$1" status="$2" detail="$3" fix_action="${4:-}"
@@ -44,7 +68,7 @@ check() {
 }
 
 # ---------- 1. Doctor (native migrations + plugin health) ----------
-doctor_out=$($DC exec -T openclaw-gateway node dist/index.js doctor --fix --yes 2>&1 | tail -20) || true
+doctor_out=$(timeout 15 $DC exec -T openclaw-gateway node dist/index.js doctor --fix --yes 2>&1 | tail -20) || true
 if echo "$doctor_out" | grep -qi "Doctor complete"; then
     check "doctor" "pass" "ok"
 else
@@ -53,7 +77,7 @@ else
 fi
 
 # ---------- 2. Config Validate ----------
-config_out=$($DC exec -T openclaw-gateway node dist/index.js config validate 2>&1) || true
+config_out=$(timeout 15 $DC exec -T openclaw-gateway node dist/index.js config validate 2>&1) || true
 if echo "$config_out" | grep -qi "Config valid"; then
     check "config_validate" "pass" "ok"
 else
@@ -62,7 +86,7 @@ else
 fi
 
 # ---------- 3. Codex Plugin Check ----------
-plugin_out=$($DC exec -T openclaw-gateway node dist/index.js plugins list 2>&1) || true
+plugin_out=$(timeout 15 $DC exec -T openclaw-gateway node dist/index.js plugins list 2>&1) || true
 if echo "$plugin_out" | grep -q "codex.*enabled"; then
     codex_ver=$(echo "$plugin_out" | grep "codex" | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -1)
     check "codex_plugin" "pass" "v${codex_ver:-unknown}"
@@ -71,7 +95,7 @@ else
 fi
 
 # ---------- 4. Auth Health ----------
-health_out=$($DC exec -T openclaw-gateway node dist/index.js health 2>&1) || true
+health_out=$(timeout 15 $DC exec -T openclaw-gateway node dist/index.js health 2>&1) || true
 if echo "$health_out" | grep -qi "expired\|missing"; then
     detail=$(echo "$health_out" | grep -iE "expired|missing" | head -1 | tr '"' "'" | cut -c1-100)
     check "auth_health" "warn" "$detail" "codex-reauth"
@@ -123,6 +147,35 @@ for iss in "${issues[@]+"${issues[@]}"}"; do
     fi
 done
 
+# If auto-fix is on, attempt fixes for failing checks then re-verify
+if $AUTO_FIX && [ ${#issues[@]} -gt 0 ]; then
+    for iss in "${issues[@]}"; do
+        chk=$(echo "$iss" | grep -oP '"check":"\K[^"]+' || echo "")
+        [ -n "$chk" ] && try_fix "$chk" "auto-fix-$chk" && {
+            # E7: Re-verify after fix — confirm the fix actually worked
+            reverify="unknown"
+            case "$chk" in
+                codex_plugin)
+                    timeout 15 $DC exec -T openclaw-gateway node dist/index.js plugins list 2>&1 | grep -q "codex.*enabled" && reverify="pass" || reverify="still_failing" ;;
+                openclaw-host-ops|openclaw-bridge-dev)
+                    sleep 2 && systemctl is-active --quiet "$chk" 2>/dev/null && reverify="pass" || reverify="still_failing" ;;
+                container_health)
+                    sleep 5 && cs=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose -f /root/openclaw/docker-compose.yml ps -q openclaw-gateway 2>/dev/null)" 2>/dev/null)
+                    [ "$cs" = "healthy" ] && reverify="pass" || reverify="still_failing" ;;
+                auth_health)
+                    sleep 3 && timeout 15 $DC exec -T openclaw-gateway node dist/index.js health 2>&1 | grep -qi "expired\|missing" && reverify="still_failing" || reverify="pass" ;;
+            esac
+            # Update the auto_fixed entry with re-verification result
+            auto_fixed[-1]=$(echo "${auto_fixed[-1]}" | sed "s/}$/,\"reverify\":\"$reverify\"}/")
+        } || true
+    done
+fi
+
+fixed_json="[]"
+if [ ${#auto_fixed[@]} -gt 0 ]; then
+    fixed_json=$(printf '%s\n' "${auto_fixed[@]}" | paste -sd ',' | sed 's/^/[/;s/$/]/')
+fi
+
 cat <<EOF
-{"overall":"$overall","passed":$checks_passed,"total":$checks_total,"issues":$issue_json,"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+{"overall":"$overall","passed":$checks_passed,"total":$checks_total,"issues":$issue_json,"auto_fixed":$fixed_json,"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 EOF

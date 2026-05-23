@@ -106,7 +106,7 @@ cmd_apply() {
 # Auto-rollback triggered by dead man's switch
 echo "[DEAD MAN'S SWITCH] Rollback firing at \$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOGFILE"
 cp "$backup_file" "$CONFIG"
-cd "$COMPOSE_DIR" && docker compose restart openclaw-gateway >> "$LOGFILE" 2>&1
+/root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "DEAD MAN'S SWITCH rollback" --force >> "$LOGFILE" 2>&1
 echo "[DEAD MAN'S SWITCH] Restored $backup_file and restarted gateway" >> "$LOGFILE"
 rm -f "$rollback_script"
 ROLLBACK
@@ -133,10 +133,9 @@ ROLLBACK
   mv "$tmpfile" "$CONFIG"
   log "APPLIED: $agent_id model changed from $current to $new_model"
 
-  # Step 4: Restart gateway
+  # Step 4: Restart gateway (uses safe script — checks for active sessions)
   log "RESTARTING gateway..."
-  cd "$COMPOSE_DIR"
-  if ! docker compose restart openclaw-gateway >> "$LOGFILE" 2>&1; then
+  if ! /root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "model-change: $agent_id -> $new_model" >> "$LOGFILE" 2>&1; then
     log "RESTART FAILED. Dead man's switch will fire in ${timeout}min."
     echo "RESTART FAILED. Rollback scheduled in ${timeout} minutes (at job $at_job_id)."
     exit 1
@@ -185,7 +184,7 @@ cmd_rollback() {
 
   log "MANUAL ROLLBACK: restoring $latest"
   cp "$latest" "$CONFIG"
-  cd "$COMPOSE_DIR" && docker compose restart openclaw-gateway >> "$LOGFILE" 2>&1
+  /root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "MANUAL ROLLBACK" --force >> "$LOGFILE" 2>&1
   log "MANUAL ROLLBACK: complete"
 
   # Clear any pending at jobs

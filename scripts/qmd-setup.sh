@@ -64,8 +64,7 @@ docker compose exec openclaw-gateway qmd embed
 
 # 7. Restart gateway to pick up lancedb fix
 echo "[7/7] Restarting gateway..."
-docker compose restart openclaw-gateway
-sleep 12
+/root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "qmd-setup: lancedb fix"
 
 echo ""
 echo "=== QMD Setup Complete ==="

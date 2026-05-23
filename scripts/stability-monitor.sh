@@ -176,19 +176,17 @@ if [ "$CONTAINER_STATUS" != "running" ]; then
   LAST_RESTART=$(stat -c %Y "$COOLDOWN_FILE" 2>/dev/null || echo 0)
   NOW_EPOCH=$(date +%s)
   if [ $((NOW_EPOCH - LAST_RESTART)) -gt $COOLDOWN_SECONDS ]; then
-    log "AUTO-RESTART: Attempting gateway restart"
+    log "AUTO-RESTART: Attempting gateway restart via safe script"
     touch "$COOLDOWN_FILE"
-    docker compose -f /root/openclaw/docker-compose.yml up -d openclaw-gateway 2>/dev/null
-    sleep 12
-    NEW_STATUS=$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null)
-    if [ "$NEW_STATUS" = "running" ]; then
-      log "AUTO-RESTART: Gateway recovered"
+    if /root/.openclaw/scripts/gateway-restart-safe.sh "${TELEGRAM_TARGET}" "stability-monitor: $CONTAINER_STATUS" --force 2>&1; then
+      log "AUTO-RESTART: Gateway recovered (safe restart)"
       telegram_direct "Auto-restart: Gateway recovered. All services resuming."
       RECOVERED="${RECOVERED}Gateway auto-restarted. "
       CONTAINER_STATUS="running"
     else
-      log "AUTO-RESTART: Gateway failed to restart (status: $NEW_STATUS)"
-      telegram_direct "ALERT: Gateway auto-restart FAILED (status: $NEW_STATUS). Manual intervention needed."
+      RESTART_EXIT=$?
+      log "AUTO-RESTART: Safe restart failed (exit $RESTART_EXIT)"
+      telegram_direct "ALERT: Gateway auto-restart FAILED (exit $RESTART_EXIT). Manual intervention needed."
     fi
   else
     log "AUTO-RESTART: Cooldown active (last attempt $((NOW_EPOCH - LAST_RESTART))s ago)"

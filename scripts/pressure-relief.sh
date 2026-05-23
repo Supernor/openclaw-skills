@@ -167,7 +167,7 @@ if [ "$MODE" = "memory" ] && [ "$TIER" -ge 3 ]; then
         echo "$NOW" >> "$RESTART_TRACKER"
         # Prune tracker entries older than 1 hour
         awk -v cutoff="$HOUR_AGO" '$1 > cutoff' "$RESTART_TRACKER" > "${RESTART_TRACKER}.tmp" && mv "${RESTART_TRACKER}.tmp" "$RESTART_TRACKER"
-        cd /root/openclaw && docker compose restart openclaw-gateway >/dev/null 2>&1 &
+        /root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "pressure-relief: RSS ${GW_RSS_MB}MB" --force >/dev/null 2>&1 &
       fi
       FREED_DESC="${FREED_DESC}gw-restart "
     fi
