@@ -467,17 +467,17 @@ if ! ps aux | grep "[b]ackbone-listener.py" | grep -qv grep; then
   fi
 fi
 
-# Check 11: relay-handoff-watcher
-if ! ps aux | grep "[r]elay-handoff-watcher.py" | grep -qv grep; then
-  log "ALERT: relay-handoff-watcher is DOWN — auto-restarting"
-  cd /root/.openclaw/scripts && nohup python3 relay-handoff-watcher.py >> /root/.openclaw/logs/relay-handoff-watcher.log 2>&1 &
+# Check 11: relay-handoff-watcher (systemd-managed — Rule 1: executor systemd only)
+if ! systemctl is-active --quiet relay-handoff-watcher; then
+  log "ALERT: relay-handoff-watcher is DOWN — restarting via systemd"
+  systemctl start relay-handoff-watcher
   sleep 2
-  if ps aux | grep "[r]elay-handoff-watcher.py" | grep -qv grep >/dev/null; then
-    RECOVERED="${RECOVERED}relay-handoff-watcher auto-restarted. "
-    log "RECOVERED: relay-handoff-watcher restarted"
+  if systemctl is-active --quiet relay-handoff-watcher; then
+    RECOVERED="${RECOVERED}relay-handoff-watcher auto-restarted (systemd). "
+    log "RECOVERED: relay-handoff-watcher restarted via systemd"
   else
-    ALERTS="${ALERTS}relay-handoff-watcher DOWN and restart FAILED. "
-    log "ALERT: relay-handoff-watcher restart failed"
+    ALERTS="${ALERTS}relay-handoff-watcher DOWN and systemd restart FAILED. "
+    log "ALERT: relay-handoff-watcher systemd restart failed"
   fi
 fi
 
@@ -513,6 +513,27 @@ for SVC in openclaw-bridge-dev; do
     fi
   fi
 done
+
+# Check 14: Gateway container orphaned agent processes
+# Orphaned openclaw/openclaw-agent processes accumulate when agent calls are killed mid-flight.
+# They choke the event loop (CPU spikes, ETIMEDOUT on shell spawns, agent calls timeout).
+# SAFE approach: only kill agent processes older than 20 MINUTES and NOT the main gateway (PID 8).
+# Gateway max agent timeout is 600s (10 min). 20 min = 2x the max — anything alive that long
+# with no parent session is definitively orphaned, regardless of CPU usage.
+# This does NOT touch high-CPU processes that are young — those are doing legitimate work.
+if [ "$CONTAINER_STATUS" = "running" ]; then
+  ORPHANS=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway \
+    sh -c "ps -eo pid,etimes,comm 2>/dev/null | awk '\$2 > 1200 && (\$3 == \"openclaw\" || \$3 == \"openclaw-agent\") && \$1 != 8 {print \$1, \$2, \$3}'" 2>/dev/null)
+  if [ -n "$ORPHANS" ]; then
+    ORPHAN_COUNT=$(echo "$ORPHANS" | wc -l)
+    log "ALERT: Found $ORPHAN_COUNT orphaned agent process(es) in gateway (older than 20 min) — killing"
+    echo "$ORPHANS" | while read PID AGE COMM; do
+      log "  Killing orphan PID=$PID age=${AGE}s ($COMM)"
+      docker compose -f /root/openclaw/docker-compose.yml exec -T --user root openclaw-gateway kill "$PID" 2>/dev/null
+    done
+    RECOVERED="${RECOVERED}Killed $ORPHAN_COUNT orphaned gateway agent processes. "
+  fi
+fi
 
 # State-change recovery: gateway was down, now running → fire recovery hook ONCE
 PREV_GATEWAY=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('gateway','unknown'))" 2>/dev/null) || PREV_GATEWAY="unknown"

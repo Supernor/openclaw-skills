@@ -63,7 +63,7 @@ HELM_RATE=$(echo "$HELM_STATS" | head -1 | cut -d'|' -f3)
 HELM_TOP=$(echo "$HELM_STATS" | tail -1)
 
 # Ideas pipeline
-IDEAS=$(sqlite3 /root/.openclaw/transcripts.db "SELECT status || ':' || COUNT(*) FROM ideas GROUP BY status" 2>/dev/null | tr '\n' ' ' || echo "unavailable")
+IDEAS=$(sqlite3 /root/.openclaw/ops.db "SELECT status || ':' || COUNT(*) FROM intents GROUP BY status" 2>/dev/null | tr '\n' ' ' || echo "unavailable")
 
 # Satisfaction
 SAT_SUMMARY=$(/root/.openclaw/scripts/satisfaction-summary.sh 2>/dev/null || echo "Satisfaction: unavailable")
