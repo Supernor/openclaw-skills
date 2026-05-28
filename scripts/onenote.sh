@@ -96,6 +96,19 @@ case "$cmd" in
             | fmt_list 'v.id+"\t"+v.title'
         ;;
 
+    share-notebook)
+        NB_ID="${1:?notebook-id required}"
+        EMAIL="${2:?email required}"
+        ROLE="${3:-write}"
+        # Notebook IDs contain the OneDrive item ID — use it directly
+        DRIVE_ITEM=$(echo "$NB_ID" | sed 's/^0-//')
+        curl -s -X POST -H "$AUTH" \
+            -H "Content-Type: application/json" \
+            -d "{\"recipients\":[{\"email\":\"$EMAIL\"}],\"roles\":[\"$ROLE\"],\"requireSignIn\":true,\"sendInvitation\":true,\"message\":\"Shared notebook from Relay\"}" \
+            "https://graph.microsoft.com/v1.0/me/drive/items/$DRIVE_ITEM/invite" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);if(j.error){console.error(j.error.message);process.exit(1)}j.value.forEach(v=>console.log('Shared with: '+(v.grantedTo||{}).user?.email+' ['+v.roles+']'))}catch(e){console.log(d)}})" 2>/dev/null || cat
+        ;;
+
     help|*)
         echo "OneNote API Tool"
         echo ""
@@ -107,5 +120,6 @@ case "$cmd" in
         echo "  create-page <section-id> <title> [html-body]  Create a new page"
         echo "  append-page <page-id> <html>       Append content to a page"
         echo "  search <query>                     Search pages by content"
+        echo "  share-notebook <nb-id> <email> [role]  Share notebook (role: read|write)"
         ;;
 esac

@@ -16,7 +16,14 @@ COMMAND="${2:?Usage: workspace-cli.sh ACCOUNT 'gws command...'}"
 
 # Account-to-credential mapping
 # Each agent's Google account gets its own isolated gws config directory
-CRED_DIR="/root/.openclaw/gws-credentials/$ACCOUNT"
+# Works on host (/root/.openclaw) and in container (/home/node/.openclaw)
+if [ -d "/root/.openclaw/gws-credentials/$ACCOUNT" ]; then
+  CRED_DIR="/root/.openclaw/gws-credentials/$ACCOUNT"
+elif [ -d "/home/node/.openclaw/gws-credentials/$ACCOUNT" ]; then
+  CRED_DIR="/home/node/.openclaw/gws-credentials/$ACCOUNT"
+else
+  CRED_DIR="/root/.openclaw/gws-credentials/$ACCOUNT"
+fi
 
 if [ ! -d "$CRED_DIR" ]; then
     echo "ERROR: No credentials for account '$ACCOUNT'."
