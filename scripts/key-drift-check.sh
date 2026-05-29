@@ -40,7 +40,7 @@ EXCLUDED_KEYS=(
 
 # Fixed: /app/.env doesn't exist inside the container. The real env file is on the host.
 # Why: the gateway gets env vars via docker-compose environment config, not a file at /app/
-ENV_FILE="${1:-/tmp/.env}"
+ENV_FILE="${1:-/home/node/.openclaw/.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo '{"status":"ERROR","message":"env file not found","file":"'"$ENV_FILE"'"}'

@@ -5,7 +5,7 @@ set -euo pipefail
 
 # NOTE: /app/.env only has infra keys. Provider keys are in the host .env
 # which docker-compose passes as env vars. We combine both sources.
-ENV_FILE="${1:-/app/.env}"
+ENV_FILE="${1:-/home/node/.openclaw/.env}"
 REPO_PATH="/home/node/.openclaw/repos/openclaw-config"
 
 if [ ! -f "$ENV_FILE" ]; then
