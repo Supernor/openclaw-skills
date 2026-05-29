@@ -1,9 +1,13 @@
 #!/bin/bash
-# repo-health.sh — Verify all 3 GitHub repos, check ages, secrets count
+# repo-health.sh — Verify all 4 GitHub repos, check ages, secrets count
 # Outputs structured JSON. Zero LLM tokens needed.
+#
+# 2026-05-29: added openclaw-vps (host-side rebuild artifacts; pushed nightly
+# at 3:30 UTC via vps-backup.sh step 4/5 of backup-suite.sh). See chart
+# procedure-vps-backup-pipeline-20260529.
 set -euo pipefail
 
-REPOS=("openclaw-config" "openclaw-workspace" "openclaw-skills")
+REPOS=("openclaw-config" "openclaw-workspace" "openclaw-skills" "openclaw-vps")
 CANONICAL_KEY_COUNT=9
 NOW=$(date +%s)
 SEVEN_DAYS=$((7 * 86400))
