@@ -1,0 +1,48 @@
+{
+  "keys": {
+    "name": "key-drift-check.sh",
+    "ok": 1,
+    "total": 2,
+    "missing": ["GH_TOKEN"],
+    "extra": [],
+    "details": "GH_TOKEN missing"
+  },
+  "backups": {
+    "name": "ws-backup.sh",
+    "workspace": {
+      "pushed": false
+    },
+    "repos": {
+      "pushed": true
+    },
+    "skills": {
+      "pushed": true,
+      "warnings": ["Backup completed with warnings"]
+    },
+    "warnings": ["workspace push failure"]
+  },
+  "repos": {
+    "config": {
+      "status": "unreachable"
+    },
+    "workspace": {
+      "status": "ok"
+    },
+    "skills": {
+      "status": "ok"
+    }
+  },
+  "logs": {
+    "name": "log-audit.sh",
+    "warnings": ["91 cron failures", "14 failed messages"],
+    "rotation_ok": true,
+    "disk_usage": "62MB",
+    "session_count": 306,
+    "pruning_ok": true
+  },
+  "providers": {
+    "healthy": 5,
+    "total": 5,
+    "healthy_providers": ["discord", "google-workspace", "github", "music", "tts"]
+  }
+}
