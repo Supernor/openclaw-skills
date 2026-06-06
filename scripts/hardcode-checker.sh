@@ -34,6 +34,20 @@ for f in "$SCRIPTS_DIR"/*.sh "$SCRIPTS_DIR"/*.py; do
     FINDINGS+=("STALE_TOOL_NAME|$base|$old_tools")
     log "  FOUND stale tool name in $base"
   fi
+
+  # Check for the timestamp-format string-compare bug (engine.py scar #7 class).
+  # ops.db timestamps are stored T-format+Z (2026-06-05T14:01:53Z); comparing such a column
+  # (< > <= >=) to datetime('now',...) — which returns SPACE-format — makes the char-10 separator
+  # ('T' 0x54 vs ' ' 0x20) decide same-day comparisons, so the window is wrong (over/under-includes
+  # today's rows). FIX that PASSES this check: use strftime('%Y-%m-%dT%H:%M:%SZ','now',...) as the
+  # boundary, OR REPLACE-normalize the column. (value-writes col=datetime('now') are not flagged.)
+  # Identifier-based (grep -P): flag a BARE column compared to datetime('now'), but NOT a normalized
+  # left side (REPLACE(...)/datetime(...) end in ')', excluded by the lookbehind) — those are correct.
+  ts_bug=$(grep -nP "(?<![A-Za-z0-9_)])[A-Za-z_][A-Za-z0-9_.]*[ \t]*[<>]=?[ \t]*datetime\([ \t]*.now" "$f" 2>/dev/null || true)
+  if [ -n "$ts_bug" ]; then
+    FINDINGS+=("TIMESTAMP_FORMAT_COMPARE|$base|$ts_bug")
+    log "  FOUND timestamp-format string-compare bug in $base (use strftime T-format boundary): $ts_bug"
+  fi
 done
 
 # 3. Scan workspace TOOLS.md for old tool names

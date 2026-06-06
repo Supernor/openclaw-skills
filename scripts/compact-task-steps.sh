@@ -13,7 +13,7 @@ DAYS="${1:-30}"
 OPS_DB="/root/.openclaw/ops.db"
 
 # Count rows that qualify for compaction
-STALE_COUNT=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM task_steps WHERE created_at < datetime('now', '-${DAYS} days')")
+STALE_COUNT=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM task_steps WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')")
 
 if [ "$STALE_COUNT" -eq 0 ]; then
     echo "No task_steps older than ${DAYS} days. Nothing to compact."
@@ -23,7 +23,7 @@ fi
 echo "Found ${STALE_COUNT} task_steps older than ${DAYS} days. Compacting..."
 
 # Get distinct task_ids with stale steps
-TASK_IDS=$(sqlite3 "$OPS_DB" "SELECT DISTINCT task_id FROM task_steps WHERE created_at < datetime('now', '-${DAYS} days')")
+TASK_IDS=$(sqlite3 "$OPS_DB" "SELECT DISTINCT task_id FROM task_steps WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')")
 
 COMPACTED=0
 for TID in $TASK_IDS; do
@@ -36,7 +36,7 @@ for TID in $TASK_IDS; do
     # Aggregate: total tokens, total duration, step count
     AGG=$(sqlite3 -separator '|' "$OPS_DB" "
         SELECT COALESCE(SUM(tokens_used),0), COALESCE(SUM(duration_ms),0), COUNT(*)
-        FROM task_steps WHERE task_id=${TID} AND created_at < datetime('now', '-${DAYS} days')
+        FROM task_steps WHERE task_id=${TID} AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')
     ")
     TOTAL_TOKENS=$(echo "$AGG" | cut -d'|' -f1)
     TOTAL_DURATION=$(echo "$AGG" | cut -d'|' -f2)
@@ -51,7 +51,7 @@ for TID in $TASK_IDS; do
     LAST=$(sqlite3 "$OPS_DB" "SELECT summary FROM task_steps WHERE task_id=${TID} ORDER BY step_index DESC LIMIT 1" | tr "'" "_" | head -c 200)
 
     # Delete old steps (keep any that are within retention window)
-    sqlite3 "$OPS_DB" "DELETE FROM task_steps WHERE task_id=${TID} AND created_at < datetime('now', '-${DAYS} days')"
+    sqlite3 "$OPS_DB" "DELETE FROM task_steps WHERE task_id=${TID} AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')"
 
     # Insert compact summary row
     sqlite3 "$OPS_DB" "
@@ -65,9 +65,9 @@ done
 echo "Compacted ${COMPACTED} tasks (${STALE_COUNT} steps archived)."
 
 # Also compact cron_outcomes if they exist and are old
-CRON_STALE=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM cron_outcomes WHERE ran_at < datetime('now', '-${DAYS} days')" 2>/dev/null || echo 0)
+CRON_STALE=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM cron_outcomes WHERE ran_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')" 2>/dev/null || echo 0)
 if [ "$CRON_STALE" -gt 0 ]; then
-    sqlite3 "$OPS_DB" "DELETE FROM cron_outcomes WHERE ran_at < datetime('now', '-${DAYS} days')"
+    sqlite3 "$OPS_DB" "DELETE FROM cron_outcomes WHERE ran_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')"
     echo "Cleaned ${CRON_STALE} old cron_outcomes."
 fi
 

@@ -49,7 +49,7 @@ check "pending_deferred" \
     "$(api_val pending_deferred)"
 
 check "failed_deferred_24h" \
-    "$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM deferred_actions WHERE status='failed' AND executed_at > datetime('now', '-24 hours');")" \
+    "$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM deferred_actions WHERE status='failed' AND executed_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours');")" \
     "$(api_val failed_deferred_24h)"
 
 check "dead_letter" \
@@ -69,7 +69,7 @@ check "historical_explained" \
     "$(api_val historical_explained)"
 
 check "stale_claims_recovered_24h" \
-    "$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM intent_audit WHERE field_changed='stale_claim_recovered' AND changed_at > datetime('now', '-24 hours');")" \
+    "$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM intent_audit WHERE field_changed='stale_claim_recovered' AND changed_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours');")" \
     "$(api_val stale_claims_recovered_24h)"
 
 echo ""

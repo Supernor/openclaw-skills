@@ -260,7 +260,7 @@ conn.execute('PRAGMA busy_timeout=5000')
 rows = conn.execute(\"\"\"SELECT meta FROM tasks
     WHERE status IN ('pending','in_progress','blocked')
     AND meta IS NOT NULL
-    AND created_at > datetime('now', '-2 hours')\"\"\").fetchall()
+    AND created_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-2 hours')\"\"\").fetchall()
 count = sum(1 for r in rows if 'codex-reauth' in (json.loads(r[0]).get('host_op','') if r[0] else ''))
 print(count)
 conn.close()
@@ -368,17 +368,17 @@ if [ "$LOAD_1M" -gt "$LOAD_THRESHOLD" ]; then
 fi
 
 # Check 5c: Stuck task detection — in_progress for >15 min = something is hung
-STUCK_TASKS=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='in_progress' AND updated_at < datetime('now', '-15 minutes');" 2>/dev/null) || STUCK_TASKS=0
+STUCK_TASKS=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='in_progress' AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-15 minutes');" 2>/dev/null) || STUCK_TASKS=0
 if [ "$STUCK_TASKS" -gt 0 ]; then
-  STUCK_IDS=$(sqlite3 "$OPS_DB" "SELECT id FROM tasks WHERE status='in_progress' AND updated_at < datetime('now', '-15 minutes') LIMIT 5;" 2>/dev/null)
+  STUCK_IDS=$(sqlite3 "$OPS_DB" "SELECT id FROM tasks WHERE status='in_progress' AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-15 minutes') LIMIT 5;" 2>/dev/null)
   ALERTS="${ALERTS}${STUCK_TASKS} task(s) stuck in_progress >15 min (IDs: ${STUCK_IDS}). FIX: unstick via Bridge or cancel. "
   log "ALERT: $STUCK_TASKS stuck in_progress tasks: $STUCK_IDS"
   # Auto-cancel tasks stuck >30 min (they're dead)
   sqlite3 "$OPS_DB" "
     UPDATE tasks SET status='cancelled',
       outcome=COALESCE(outcome,'') || ' [auto-cancelled: stuck in_progress >30 min, detected by stability-monitor]',
-      updated_at=datetime('now')
-    WHERE status='in_progress' AND updated_at < datetime('now', '-30 minutes');
+      updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+    WHERE status='in_progress' AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-30 minutes');
   " 2>/dev/null
 fi
 
@@ -548,9 +548,9 @@ if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1"
 
   # 1. Reset stuck in_progress tasks that were dispatched during downtime
   RESET_COUNT=$(sqlite3 /root/.openclaw/ops.db "
-    UPDATE tasks SET status='pending', updated_at=datetime('now')
+    UPDATE tasks SET status='pending', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
     WHERE status='in_progress'
-    AND updated_at < datetime('now', '-5 minutes');
+    AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-5 minutes');
     SELECT changes();
   " 2>/dev/null) || RESET_COUNT=0
   [ "$RESET_COUNT" -gt 0 ] && log "RECOVERY: Reset $RESET_COUNT stuck in_progress tasks to pending"
@@ -564,10 +564,10 @@ if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1"
   # 3. Write recovery event (state-change, not spam — Tactyl pattern)
   sqlite3 /root/.openclaw/ops.db "
     INSERT INTO kv (key, value, updated_at) VALUES ('gateway_recovery_event', json_object(
-      'ts', datetime('now'),
+      'ts', strftime('%Y-%m-%dT%H:%M:%SZ','now'),
       'prev_state', '$PREV_GATEWAY',
       'tasks_reset', $RESET_COUNT
-    ), datetime('now'))
+    ), strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at;
   " 2>/dev/null
 

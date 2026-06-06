@@ -142,9 +142,9 @@ fi
 
 # Stuck in_progress
 if [ "${IN_PROGRESS:-0}" -gt 0 ]; then
-  STUCK=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='in_progress' AND updated_at < datetime('now', '-15 minutes')" 2>/dev/null || echo 0)
+  STUCK=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='in_progress' AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-15 minutes')" 2>/dev/null || echo 0)
   if [ "${STUCK:-0}" -gt 0 ]; then
-    STUCK_IDS=$(sqlite3 "$OPS_DB" "SELECT id FROM tasks WHERE status='in_progress' AND updated_at < datetime('now', '-15 minutes')" 2>/dev/null)
+    STUCK_IDS=$(sqlite3 "$OPS_DB" "SELECT id FROM tasks WHERE status='in_progress' AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-15 minutes')" 2>/dev/null)
     issue "$STUCK task(s) stuck in_progress >15 min (IDs: $STUCK_IDS)" "Executor was killed mid-task" "Reset to pending: UPDATE tasks SET status='pending' WHERE id IN ($STUCK_IDS)"
   fi
 fi
@@ -176,8 +176,8 @@ echo "  Active agents (with pending/in_progress): $AGENT_COUNT"
 
 # ── SECTION 4: Engine Health (can models respond?) ──
 echo ""; echo "--- Engine Health ---"
-CODEX_RECENT=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM engine_usage WHERE engine='codex' AND ts > datetime('now', '-4 hours')" 2>/dev/null || echo 0)
-CODEX_OK=$(sqlite3 "$OPS_DB" "SELECT SUM(success) FROM engine_usage WHERE engine='codex' AND ts > datetime('now', '-4 hours')" 2>/dev/null || echo 0)
+CODEX_RECENT=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM engine_usage WHERE engine='codex' AND ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-4 hours')" 2>/dev/null || echo 0)
+CODEX_OK=$(sqlite3 "$OPS_DB" "SELECT SUM(success) FROM engine_usage WHERE engine='codex' AND ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-4 hours')" 2>/dev/null || echo 0)
 echo "  Codex (4h): ${CODEX_OK:-0}/${CODEX_RECENT:-0} success"
 if [ "${CODEX_RECENT:-0}" -gt 3 ] && [ "${CODEX_OK:-0}" -eq 0 ]; then
   issue "Codex failing: 0/${CODEX_RECENT} in 4h" "OAuth expired or rate limited" "codex login status. If expired: create codex-reauth task"

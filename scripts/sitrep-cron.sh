@@ -76,7 +76,7 @@ CRON_FAILS=${CRON_FAILS:-0}
 SCOPE_TOTAL=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM scope" 2>/dev/null || echo "0")
 SCOPE_SYSTEM=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM scope WHERE scope_tier='system'" 2>/dev/null || echo "0")
 SCOPE_MODE=${SCOPE_GATE_MODE:-shadow}
-SCOPE_GATE_LOG_24H=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM gate_log WHERE ts > datetime('now', '-24 hours')" 2>/dev/null || echo "0")
+SCOPE_GATE_LOG_24H=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM gate_log WHERE ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours')" 2>/dev/null || echo "0")
 
 # --- Build sitrep ---
 

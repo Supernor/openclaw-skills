@@ -30,7 +30,7 @@ for dbfile in $FILES; do
   _exec sqlite3 "$dbfile" "DROP TABLE IF EXISTS embedding_cache;" 2>/dev/null || true
 
   # Delete chunks older than 30 days if table has timestamp
-  _exec sqlite3 "$dbfile" "DELETE FROM chunks WHERE created_at < datetime('now', '-30 days');" 2>/dev/null || true
+  _exec sqlite3 "$dbfile" "DELETE FROM chunks WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-30 days');" 2>/dev/null || true
 
   # Vacuum
   _exec sqlite3 "$dbfile" "VACUUM;" 2>/dev/null || true

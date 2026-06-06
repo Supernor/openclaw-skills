@@ -32,12 +32,12 @@ SELECT
     SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) as cancelled,
     COUNT(*) as total
 FROM tasks
-WHERE updated_at > datetime('now', '-${DAYS} days')
+WHERE updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days')
 GROUP BY day ORDER BY day;
 "
-COMPLETED=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='completed' AND updated_at > datetime('now', '-${DAYS} days');")
-BLOCKED=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='blocked' AND updated_at > datetime('now', '-${DAYS} days');")
-TOTAL=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE updated_at > datetime('now', '-${DAYS} days');")
+COMPLETED=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='completed' AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
+BLOCKED=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='blocked' AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
+TOTAL=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
 if [ "$TOTAL" -gt 0 ]; then
     RATE=$(echo "scale=0; $COMPLETED * 100 / $TOTAL" | bc)
     echo "Completion rate: ${COMPLETED}/${TOTAL} (${RATE}%)"
@@ -55,7 +55,7 @@ echo "Dead letters: ${DEAD}"
 echo ""
 
 echo "--- Stale Claim Recoveries ---"
-RECOVERED=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM intent_audit WHERE field_changed='stale_claim_recovered' AND changed_at > datetime('now', '-${DAYS} days');")
+RECOVERED=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM intent_audit WHERE field_changed='stale_claim_recovered' AND changed_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
 echo "Recovered in window: ${RECOVERED}"
 echo ""
 
@@ -68,13 +68,13 @@ fi
 echo ""
 
 echo "--- Unknown Host Ops ---"
-UNKNOWN_OPS=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE outcome LIKE '%Unknown host operation%' AND updated_at > datetime('now', '-${DAYS} days');")
+UNKNOWN_OPS=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE outcome LIKE '%Unknown host operation%' AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
 echo "Invalid host_ops in window: ${UNKNOWN_OPS}"
 echo ""
 
 echo "--- Auto-Correction Success ---"
-CORRECTED_TOTAL=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE task LIKE 'Auto-corrected:%' AND updated_at > datetime('now', '-${DAYS} days');")
-CORRECTED_OK=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE task LIKE 'Auto-corrected:%' AND status='completed' AND updated_at > datetime('now', '-${DAYS} days');")
+CORRECTED_TOTAL=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE task LIKE 'Auto-corrected:%' AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
+CORRECTED_OK=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE task LIKE 'Auto-corrected:%' AND status='completed' AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-${DAYS} days');")
 echo "Auto-corrections: ${CORRECTED_OK}/${CORRECTED_TOTAL} completed"
 echo ""
 

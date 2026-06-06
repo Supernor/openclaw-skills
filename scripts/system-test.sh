@@ -471,7 +471,7 @@ if should_run automation; then
   fi
 
   S=$(date +%s%N | cut -b1-13)
-  STUCK=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='in_progress' AND started_at < datetime('now', '-30 minutes');" 2>/dev/null || echo 0)
+  STUCK=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='in_progress' AND started_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-30 minutes');" 2>/dev/null || echo 0)
   if [ "$STUCK" -eq 0 ]; then
     record automation host_ops_no_stuck pass "0 stuck tasks" $(( $(date +%s%N | cut -b1-13) - S ))
   else
@@ -537,7 +537,7 @@ if should_run models; then
   fi
 
   S=$(date +%s%N | cut -b1-13)
-  USAGE=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='completed' AND completed_at > datetime('now', '-24 hours');" 2>/dev/null || echo 0)
+  USAGE=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status='completed' AND completed_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours');" 2>/dev/null || echo 0)
   if [ "$USAGE" -gt 0 ]; then
     record models recent_engine_usage pass "$USAGE tasks in 24h" $(( $(date +%s%N | cut -b1-13) - S ))
   else
@@ -545,8 +545,8 @@ if should_run models; then
   fi
 
   S=$(date +%s%N | cut -b1-13)
-  TOTAL_24H=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE created_at > datetime('now', '-24 hours');" 2>/dev/null || echo 1)
-  FAILED_24H=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status IN ('blocked','cancelled') AND created_at > datetime('now', '-24 hours');" 2>/dev/null || echo 0)
+  TOTAL_24H=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE created_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours');" 2>/dev/null || echo 1)
+  FAILED_24H=$(sqlite3 "$OPS_DB" "SELECT COUNT(*) FROM tasks WHERE status IN ('blocked','cancelled') AND created_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours');" 2>/dev/null || echo 0)
   RATE=$((FAILED_24H * 100 / (TOTAL_24H > 0 ? TOTAL_24H : 1)))
   if [ "$RATE" -lt 50 ]; then
     record models error_rate pass "${RATE}% failure rate (24h)" $(( $(date +%s%N | cut -b1-13) - S ))

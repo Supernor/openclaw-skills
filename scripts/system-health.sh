@@ -184,10 +184,10 @@ done
 task_summary=""
 if [ -f /root/.openclaw/ops.db ]; then
     task_summary=$(sqlite3 /root/.openclaw/ops.db \
-        "SELECT status, COUNT(*) FROM tasks WHERE created_at > datetime('now', '-24 hours') GROUP BY status" \
+        "SELECT status, COUNT(*) FROM tasks WHERE created_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours') GROUP BY status" \
         2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "db_error")
     blocked_count=$(sqlite3 /root/.openclaw/ops.db \
-        "SELECT COUNT(*) FROM tasks WHERE status='blocked' AND created_at > datetime('now', '-24 hours')" \
+        "SELECT COUNT(*) FROM tasks WHERE status='blocked' AND created_at > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours')" \
         2>/dev/null || echo "0")
     if [ "$blocked_count" -gt 3 ]; then
         issues+=("{\"component\":\"tasks\",\"problem\":\"$blocked_count blocked tasks in 24h — pipeline may be stuck\",\"fix_action\":\"error-audit\"}")
@@ -201,11 +201,11 @@ if [ -f /root/.openclaw/ops.db ]; then
     blackout_check=$(sqlite3 /root/.openclaw/ops.db "
         SELECT
             COALESCE((SELECT CASE WHEN COUNT(*) >= 3 AND (SUM(success)*1.0/COUNT(*)) < 0.3 THEN 1 ELSE 0 END
-                FROM engine_usage WHERE engine='codex' AND pool='pool-a' AND ts > datetime('now', '-60 minutes')), 0) AS codex_a_dead,
+                FROM engine_usage WHERE engine='codex' AND pool='pool-a' AND ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-60 minutes')), 0) AS codex_a_dead,
             COALESCE((SELECT CASE WHEN COUNT(*) >= 3 AND (SUM(success)*1.0/COUNT(*)) < 0.3 THEN 1 ELSE 0 END
-                FROM engine_usage WHERE engine='codex' AND pool='pool-b' AND ts > datetime('now', '-60 minutes')), 0) AS codex_b_dead,
+                FROM engine_usage WHERE engine='codex' AND pool='pool-b' AND ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-60 minutes')), 0) AS codex_b_dead,
             COALESCE((SELECT CASE WHEN COUNT(*) >= 3 AND (SUM(success)*1.0/COUNT(*)) < 0.3 THEN 1 ELSE 0 END
-                FROM engine_usage WHERE engine='gemini' AND ts > datetime('now', '-60 minutes')), 0) AS gemini_dead
+                FROM engine_usage WHERE engine='gemini' AND ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-60 minutes')), 0) AS gemini_dead
     " 2>/dev/null || echo "0|0|0")
 
     codex_a_dead=$(echo "$blackout_check" | cut -d'|' -f1)
