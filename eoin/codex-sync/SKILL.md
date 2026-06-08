@@ -1,3 +1,11 @@
+---
+name: codex-sync
+description: Detect when Codex OAuth is failing and fix it by syncing fresh tokens to the gateway. The #1 most common system issue - tokens expire, gateway falls back to Mistral (slow), everything degrades.
+version: 1.0.0
+author: eoin
+tags: [codex, oauth, auth, failover, reauth, proactive]
+---
+
 # Skill: codex-sync
 Description: Detect when Codex OAuth is failing and fix it by syncing fresh tokens to the gateway. This is the #1 most common system issue — Codex tokens expire, gateway falls back to Mistral (slow), everything degrades.
 

@@ -80,7 +80,7 @@ case "$CMD" in
 }]
 JQEOF
 
-    for SKILL_FILE in $(find "${BASE}"/workspace*/skills -name "SKILL.md" -o -name "skill.md" 2>/dev/null | sort); do
+    for SKILL_FILE in $(find -L "${BASE}"/workspace*/skills -name "SKILL.md" -o -name "skill.md" 2>/dev/null | sort); do
       WS_DIR=$(echo "$SKILL_FILE" | sed "s|${BASE}/||;s|/skills/.*||")
       AGENT_ID=$(workspace_to_agent "$WS_DIR")
       SKILL_NAME=$(echo "$SKILL_FILE" | sed 's|.*/skills/||;s|/[Ss][Kk][Ii][Ll][Ll]\.[Mm][Dd]||')
