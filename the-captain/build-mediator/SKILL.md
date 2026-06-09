@@ -1,6 +1,6 @@
 ---
 name: build-mediator
-description: Orchestrate build steps. Mistral assesses, dispatches experts, narrates to human, tracks in ops.db.
+description: Orchestrate build steps. Nemotron assesses, dispatches experts, narrates to human, tracks in ops.db.
 tags: [build, orchestrate, workshop, mediator]
 version: 1.0.0
 ---
@@ -26,17 +26,17 @@ python3 /root/.openclaw/scripts/build-engine.py --idea-id {id} --chat-id {chat} 
 ```
 
 ## Steps
-1. **Assess** (Mistral, <256 tokens) — what type of project?
+1. **Assess** (Nemotron, <256 tokens) — what type of project?
 2. **Architect** (Claude/Codex) — read project.md, write architecture.md
 3. **Build** (Codex --full-auto) — read architecture.md, create all files
 4. **Review** (Codex) — flag critical issues
 5. **Deploy** (local script) — detect type, serve, return URL
-6. **Summarize** (Mistral, <256 tokens) — 3 sentences for the human
+6. **Summarize** (Nemotron, <256 tokens) — 3 sentences for the human
 
 ## Rules
 - Each step is an ops.db task (agent: "workshop-build")
 - Narrate to Telegram BEFORE each step starts (say what you're doing before you do it)
-- Mistral outputs under 256 tokens during orchestration — he decides, doesn't compose
+- Nemotron outputs under 256 tokens during orchestration — he decides, doesn't compose
 - Agents read files directly — don't stuff context into prompts
 - Codex build uses npx directly, NOT codex-task wrapper
 - Dynamic config: VPS_IP, ports, model names from env, not hardcoded

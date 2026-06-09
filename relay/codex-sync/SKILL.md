@@ -1,16 +1,16 @@
 # Skill: codex-sync
-Description: Detect when Codex OAuth is failing and fix it by syncing fresh tokens to the gateway. This is the #1 most common system issue — Codex tokens expire, gateway falls back to Mistral (slow), everything degrades.
+Description: Detect when Codex OAuth is failing and fix it by syncing fresh tokens to the gateway. This is the #1 most common system issue — Codex tokens expire, gateway falls back to a slower model, everything degrades.
 
 ## Triggers
-- You notice your OWN responses are slow (you're running on Mistral fallback instead of Codex)
+- You notice your OWN responses are slow (you're running on a fallback model instead of Codex)
 - Robert says "you're slow", "Relay is slow", "why is everything slow"
 - Robert says "/reauth" or "fix codex" or "refresh auth"
 - You see "OAuth token refresh failed" or "rate_limit" in recent errors
 - You see "FailoverError" in your session context
 - Gateway model fallback decisions show Codex failing
 
-## How to detect you're on Mistral
-If your responses feel different or Robert says you're slow, you're probably on Mistral fallback.
+## How to detect you're on a fallback
+If your responses feel different or Robert says you're slow, you're probably on a fallback model.
 The gateway logs show: `model fallback decision: decision=candidate_failed requested=openai-codex ... reason=auth`
 
 ## Fix: Two Steps
