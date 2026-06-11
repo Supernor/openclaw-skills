@@ -2,6 +2,18 @@
 # bridge-promote.sh — Promote Bridge dev to production after verification
 set -eo pipefail
 
+# === GUARD (2026-06-10, Robert directive): /root/bridge is the PRESERVED OLD ===
+# === BRIDGE — his rollback target if he dislikes the new one. Promoting      ===
+# === OVERWRITES it. Also: this script restarts a wrong/disabled service      ===
+# === (scar danger; chart issue-bridge-promote-stale-service-20260601).       ===
+if [ "${BRIDGE_PROMOTE_CONFIRM:-}" != "yes" ]; then
+  echo "BLOCKED: /root/bridge is the preserved OLD Bridge (rollback target — Robert 2026-06-10)."
+  echo "Running this would OVERWRITE it with dev files and restart a stale service."
+  echo "Swap/rollback procedure: chart read procedure-bridge-rollback-20260610"
+  echo "If promotion is REALLY intended: BRIDGE_PROMOTE_CONFIRM=yes bash $0"
+  exit 1
+fi
+
 echo "Checking Bridge dev health..."
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/api/health)
 if [ "$HTTP" != "200" ]; then

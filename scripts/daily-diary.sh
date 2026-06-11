@@ -25,6 +25,8 @@
 
 set -eo pipefail
 
+# cron PATH lacks ~/.local/bin (claude CLI lives there)
+export PATH="/root/.local/bin:$PATH"
 # --- Config ---
 COMPOSE_DIR="/root/openclaw"
 LOG_DIR="/root/.openclaw/logs"

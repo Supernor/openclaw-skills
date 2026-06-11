@@ -217,7 +217,7 @@ for f in index.html style.css app.js dashboard-api.py; do
   fi
 done
 if [ "$SYNC_ISSUES" -gt 0 ]; then
-  warn "Bridge dev/prod out of sync ($SYNC_ISSUES file(s)). Run: bash /root/.openclaw/scripts/bridge-promote.sh"
+  warn "Bridge dev/prod differ ($SYNC_ISSUES file(s)) — EXPECTED: /root/bridge is the preserved OLD Bridge (rollback target, Robert 2026-06-10). Do NOT auto-promote. See: chart read procedure-bridge-rollback-20260610"
 fi
 
 # ── SECTION 7: Resources ──

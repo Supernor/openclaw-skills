@@ -216,18 +216,25 @@ fi
 if should_run bootstrap; then
   $JSON_MODE || echo -e "\n  ${CYAN}[bootstrap]${NC}"
 
-  # file_sizes
+  # file_sizes — CHARS not bytes, canonical bootstrap names only: the gateway
+  # injects exactly these 8 files and truncates each at 12,000 chars + 60,000
+  # total per agent (bootstrap.ts). Other .md files in a workspace are never
+  # injected, so they are not this check's business.
   S=$(date +%s%N | cut -b1-13)
   OVER=""
   for dir in /root/.openclaw/workspace*; do
-    [ -d "$dir" ] && for f in "$dir"/*.md; do
-      [ -f "$f" ] && SIZE=$(wc -c < "$f") && [ "$SIZE" -gt 12288 ] && OVER="$OVER $(basename "$dir")/$(basename "$f")($SIZE)"
+    [ -d "$dir" ] || continue
+    WTOTAL=0
+    for name in SOUL AGENTS TOOLS MEMORY IDENTITY USER HEARTBEAT BOOTSTRAP; do
+      f="$dir/$name.md"
+      [ -f "$f" ] && SIZE=$(wc -m < "$f") && WTOTAL=$((WTOTAL + SIZE)) && [ "$SIZE" -gt 12000 ] && OVER="$OVER $(basename "$dir")/$name.md(${SIZE}ch)"
     done
+    [ "$WTOTAL" -gt 60000 ] && OVER="$OVER $(basename "$dir")/TOTAL(${WTOTAL}ch>60000)"
   done
   if [ -z "$OVER" ]; then
-    record bootstrap file_sizes pass "all under 12K" $(( $(date +%s%N | cut -b1-13) - S ))
+    record bootstrap file_sizes pass "all bootstrap files <=12000 chars, totals <=60000" $(( $(date +%s%N | cut -b1-13) - S ))
   else
-    record bootstrap file_sizes fail "over 12K:$OVER" $(( $(date +%s%N | cut -b1-13) - S ))
+    record bootstrap file_sizes fail "over gateway caps:$OVER" $(( $(date +%s%N | cut -b1-13) - S ))
   fi
 
   # symlinks
@@ -447,7 +454,8 @@ if should_run channels; then
   # cron_error_rate (NEW: gateway crons in error state)
   S=$(date +%s%N | cut -b1-13)
   CRON_LIST=$(docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T openclaw-gateway openclaw cron list --all 2>&1 | grep -v "Config warnings\|plugin memory\|duplicate plugin")
-  CRON_ERRORS=$(echo "$CRON_LIST" | grep -c "  error  " || echo 0)
+  # grep -c prints the count even when 0 (exit 1) — "|| echo 0" double-prints "0\n0" and breaks [ -le ]
+  CRON_ERRORS=$(echo "$CRON_LIST" | grep -c "  error  " || true)
   if [ "$CRON_ERRORS" -le 1 ]; then
     record channels cron_error_rate pass "$CRON_ERRORS gateway crons in error" $(( $(date +%s%N | cut -b1-13) - S ))
   elif [ "$CRON_ERRORS" -le 3 ]; then
