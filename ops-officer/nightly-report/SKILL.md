@@ -31,6 +31,14 @@ See template for Green/Yellow/Red thresholds per section (Keys, Backups, Repos, 
 Send one container message. Color = worst status across all sections.
 - Green `5763719` / Yellow `16776960` / Red `15548997`
 
+Use the `message` tool with EXACTLY these params (`channel` is the provider name, never a channel id; the destination goes in `target` as `channel:<id>`):
+```json
+{"action": "send", "channel": "discord", "target": "channel:1477754636046831738",
+ "message": "<one-line headline>",
+ "presentation": {"accentColor": <color>, "blocks": [{"type": "text", "text": "<card body>"}]}}
+```
+Verified working 2026-06-11. If the send fails, log the error and stop — do not retry with guessed param shapes.
+
 ### 4. Create thread with raw data
 Thread name: `Nightly <date> — Raw Output` (autoArchive: 1440min)
 Post each script's JSON output as separate thread replies.
