@@ -21,7 +21,7 @@ const lancedb = require('/home/node/.openclaw/mcp-servers/openclaw-gateway/node_
 (async () => {
   const db = await lancedb.connect('/home/node/.openclaw/memory/lancedb');
   const table = await db.openTable('memories');
-  const rows = await table.query().limit(1000).toArray();
+  const rows = await table.query().limit(100000).toArray();
   const entries = rows.map(r => ({
     id: r.id,
     text: r.text,

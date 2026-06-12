@@ -43,7 +43,9 @@ EMB=$($COMPOSE exec -T openclaw-gateway node -e "
 [ "$EMB" = "ok" ] || PROBLEMS="${PROBLEMS}ollama-embeddings=$EMB "
 
 # --- Probe 2: vendored qmd in container ---
+# version + native-module load: --version alone missed a node-ABI break 2026-06-12
 QMD=$($COMPOSE exec -T openclaw-gateway /home/node/.openclaw/vendor/qmd/node_modules/.bin/qmd --version 2>/dev/null | head -1 || echo "missing")
+$COMPOSE exec -T openclaw-gateway node -e "require('/home/node/.openclaw/vendor/qmd/node_modules/better-sqlite3')" >/dev/null 2>&1 || QMD="missing"
 case "$QMD" in qmd*) : ;; *) PROBLEMS="${PROBLEMS}qmd=$QMD " ;; esac
 
 # --- Probe 3: memory-core enabled in config ---
@@ -67,7 +69,9 @@ if [ -z "$PROBLEMS" ]; then
   echo '{"consecutive_failures":0,"last_status":"ok","last_check":"'"$TS"'"}' > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
   # Auto-flush chart queue if there are pending entries
   if [ -f /root/.openclaw/chart-queue.jsonl ]; then
-    PENDING=$(grep -c '"pending"' /root/.openclaw/chart-queue.jsonl 2>/dev/null || echo 0)
+    # grep -c prints 0 AND exits 1 on no match — `|| echo 0` made "0\n0" (integer-test error)
+    PENDING=$(grep -c '"pending"' /root/.openclaw/chart-queue.jsonl 2>/dev/null || true)
+    PENDING=${PENDING:-0}
     if [ "$PENDING" -gt 0 ]; then
       echo "[$TS] AUTO-FLUSH: $PENDING pending charts" >> "$LOG"
       chart-queue flush >> "$LOG" 2>&1

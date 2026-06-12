@@ -12,6 +12,16 @@
 
 set -uo pipefail
 
+# [added 2026-06-12] UPDATE GUARD: while update.sh holds its flock, the gateway
+# is INTENTIONALLY stopped (build needs the RAM). On 2026-06-12 this monitor
+# restarted the gateway mid-build and pushed the box deep into swap — the exact
+# OOM scenario the update redesign exists to prevent. Lock file existing alone
+# is not enough (stale file after crash); we require the lock to be actively held.
+if [ -f /tmp/openclaw-update.lock ] && ! flock -n /tmp/openclaw-update.lock -c true 2>/dev/null; then
+  echo "$(date -u +%FT%TZ) update in progress (lock held) — monitor standing down" >> /root/.openclaw/logs/stability-monitor.log
+  exit 0
+fi
+
 STATE_FILE="/root/.openclaw/stability-state.json"
 LOG="/root/.openclaw/logs/stability-monitor.log"
 OPS_DB="/root/.openclaw/ops.db"

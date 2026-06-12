@@ -5,7 +5,7 @@
 #   relay-test.sh "your message here"                    # Basic message, text output
 #   relay-test.sh "your message" --json                  # Full JSON response
 #   relay-test.sh "your message" --deliver               # Also deliver to Telegram
-#   relay-test.sh "your message" --session <id>          # Continue a session
+#   relay-test.sh "your message" --session-key <id>          # Continue a session
 #   relay-test.sh "your message" --timeout 120           # Override timeout (default: 600s = gateway limit)
 #   relay-test.sh "your message" --agent spec-dev        # Talk to a different agent
 #
@@ -26,8 +26,8 @@
 #
 # NOTES:
 #   - This calls openclaw agent CLI inside the gateway container
-#   - Each call WITHOUT --session creates a NEW session (fresh context)
-#   - Use --session to continue a conversation (preserves context)
+#   - Each call WITHOUT --session-key creates a NEW session (fresh context)
+#   - Use --session-key to continue a conversation (preserves context)
 #   - Relay runs on GPT-5.5, typical response time 10-30s
 #   - Add --deliver to also send the response to Telegram
 
