@@ -15,9 +15,11 @@ When Robert sends a work request:
 1. Acknowledge immediately:
    > "Planning that for you..."
 
-2. Create an ops.db task for the host executor:
+2. Create an ops.db task for the host executor (via exec — there is NO tasks_create tool):
+   `bash ~/.openclaw/scripts/workshop-submit.sh "<Robert's request>" relay routine "<context>" reactor-plan`
+   Legacy shape for reference:
    ```
-   Tool: tasks_create
+   (old MCP form, tool no longer exists) tasks_create
    agent: relay
    task: "reactor-plan: {Robert's request}"
    meta: {

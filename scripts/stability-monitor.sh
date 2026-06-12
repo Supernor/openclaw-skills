@@ -440,8 +440,11 @@ if [ "$TAP_RUNNING" = "no" ]; then
 fi
 
 # Check 9: host-ops-executor — auto-restart via systemd
-if ! ps aux | grep "[h]ost-ops-executor" | grep -qv grep; then
-  log "ALERT: host-ops-executor is DOWN — auto-restarting via systemd"
+# systemd is the source of truth. The old ps-grep probe FAILED under pressure mode
+# (fork starvation) and read its own failure as executor-DOWN — restarted a healthy
+# service twice on 2026-06-11, killing the in-flight codex task that caused the load.
+if ! systemctl is-active openclaw-host-ops.service >/dev/null 2>&1; then
+  log "ALERT: host-ops-executor is DOWN (systemd inactive) — auto-restarting"
   systemctl restart openclaw-host-ops.service 2>/dev/null
   sleep 3
   if systemctl is-active openclaw-host-ops.service >/dev/null 2>&1; then

@@ -255,6 +255,14 @@ historian_fallback() {
 If any step fails, still complete the remaining steps and note what failed."
   local out
   if out=$("$OC" agent --agent "$AGENT" --message "$hist_prompt" --timeout "$TIMEOUT" 2>&1 | grep -v "level=warning"); then
+    # Transport success != work success: the agent can return an error payload or
+    # near-empty text (seen 2026-06-11: "Agent couldn't generate a response" logged as complete).
+    if printf '%s' "$out" | grep -qi "couldn't generate a response" || [ "${#out}" -lt 200 ]; then
+      log "Historian fallback FAILED (error marker or short output, ${#out} chars)"
+      log "Historian output (first 500): ${out:0:500}"
+      output-taint mark --agent "$AGENT" --reason "empty/error output"         --output "${out:0:500}" --source daily-diary 2>/dev/null || true
+      return 1
+    fi
     log "Historian fallback completed"
     log "Historian output (first 500): ${out:0:500}"
     echo "${out:0:500}" | output-taint auto --agent "$AGENT" --source daily-diary 2>/dev/null || true

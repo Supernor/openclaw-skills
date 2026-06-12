@@ -41,4 +41,20 @@ export GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND="file"
 # Execute the gws command
 # The command is the full gws invocation minus the 'gws' prefix
 # e.g., "drive files list --params '{\"pageSize\": 10}'"
-eval gws $COMMAND 2>&1
+if command -v gws >/dev/null 2>&1; then
+  GWS_BIN="gws"
+elif [ -x "/root/.openclaw/vendor/gws/node_modules/.bin/gws" ]; then
+  GWS_BIN="/root/.openclaw/vendor/gws/node_modules/.bin/gws"
+elif [ -x "/home/node/.openclaw/vendor/gws/node_modules/.bin/gws" ]; then
+  GWS_BIN="/home/node/.openclaw/vendor/gws/node_modules/.bin/gws"
+else
+  echo "ERROR: Google Workspace CLI binary not found for workspace-cli.sh."
+  echo "WHAT: workspace-cli.sh needs the gws executable to run '$COMMAND' for account '$ACCOUNT'."
+  echo "HISTORY: Tried command -v gws, /root/.openclaw/vendor/gws/node_modules/.bin/gws, and /home/node/.openclaw/vendor/gws/node_modules/.bin/gws; none were executable."
+  echo "NOT TRIED: No runtime npm install was attempted inside the container; container changes must come from the host bind mount."
+  echo "WORKED BEFORE: Host vendoring with npm install --prefix /root/.openclaw/vendor/gws @googleworkspace/cli provides /home/node/.openclaw/vendor/gws/node_modules/.bin/gws in the gateway container."
+  echo "FIX: On the host, run: mkdir -p /root/.openclaw/vendor/gws && npm install --prefix /root/.openclaw/vendor/gws @googleworkspace/cli"
+  exit 1
+fi
+
+eval $GWS_BIN $COMMAND 2>&1

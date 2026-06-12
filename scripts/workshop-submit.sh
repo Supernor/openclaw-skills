@@ -12,13 +12,14 @@
 
 set -euo pipefail
 
-TASK="${1:?Usage: workshop-submit.sh \"task\" [agent] [urgency] [context] [host_op] [routing_mode] [blocked_by]}"
+TASK="${1:?Usage: workshop-submit.sh \"task\" [agent] [urgency] [context] [host_op] [routing_mode] [blocked_by] [timeout_s]}"
 AGENT="${2:-main}"
 URGENCY="${3:-routine}"
 CONTEXT="${4:-}"
 HOST_OP="${5:-reactor-dispatch}"
 ROUTING_MODE="${6:-direct}"
 BLOCKED_BY="${7:-}"
+TIMEOUT_S="${8:-}"   # optional stall-ceiling seconds for engine ops (codex/claude reason silently >180s)
 
 # Captain = delegate mode by default
 if [ "$AGENT" = "main" ] && [ "$ROUTING_MODE" = "direct" ]; then
@@ -35,7 +36,9 @@ esac
 # WHY: Invalid host_ops create tasks that block forever with "Unknown host operation" error.
 # DO THIS: Use one of the valid ops listed below.
 # VERIFY: grep -c "\"$HOST_OP\"" /root/.openclaw/scripts/host-ops-executor.py
-VALID_OPS="bridge-edit bridge-style codex-reauth codex-run deploy-preview deploy-production gateway-health gateway-restart gauntlet-run gemini-run gemini-search lighthouse reactor-dispatch reactor-execute reactor-plan reactor-status reactor-stop reactor-undo scaffold-site screenshot stitch-mockup"
+# Keep in sync with host-ops-executor.py "Registered operations" startup log line.
+# (Stale list rejected claude-code-run etc. until 2026-06-11.)
+VALID_OPS="bridge-edit bridge-style codex-reauth codex-reauth-telegram codex-run claude-code-run deploy-preview deploy-production discord-button eoin-escalate error-audit gateway-health gateway-restart gauntlet-design-review gauntlet-run gemini-run gemini-search generate-comp github-cli infra-audit lighthouse loop-redirect pool-fuel pool-status post-update-verify reactor-dispatch reactor-execute reactor-plan reactor-status reactor-stop reactor-undo relay-escalate scaffold-site screenshot session-transcript stitch-mockup sync-codex-auth sync-secrets system-health system-observe system-self-test workspace-cli backup-suite openclaw-update"
 VALID=false
 for op in $VALID_OPS; do
   if [ "$HOST_OP" = "$op" ]; then VALID=true; break; fi
@@ -61,15 +64,17 @@ fi
 # Build meta JSON via Python (handles escaping properly — bash sed can't handle newlines in JSON)
 META=$(python3 -c "
 import json, sys
-meta = json.dumps({
+m = {
     'host_op': sys.argv[1],
     'agent': sys.argv[2],
     'prompt': sys.argv[3][:1500] + (' Context: ' + sys.argv[4] if sys.argv[4] else ''),
     'routing_mode': sys.argv[5],
     'telegram_chat_id': '8561305605',
-})
-print(meta)
-" "$HOST_OP" "$AGENT" "$TASK" "$CONTEXT" "$ROUTING_MODE")
+}
+if len(sys.argv) > 6 and sys.argv[6].strip().isdigit():
+    m['timeout'] = int(sys.argv[6])
+print(json.dumps(m))
+" "$HOST_OP" "$AGENT" "$TASK" "$CONTEXT" "$ROUTING_MODE" "$TIMEOUT_S")
 
 # Insert task with meta
 TASK_ID=$(python3 -c "
