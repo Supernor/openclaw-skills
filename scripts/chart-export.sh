@@ -6,7 +6,17 @@
 # Codex/Gemini read this file instead of burning tokens on MCP searches.
 # Run via cron every 6h or on-demand.
 
-set -eo pipefail
+set -Eeo pipefail
+
+alert_failure() {
+  local exit_code=$?
+  local line="${1:-unknown}"
+  /root/.openclaw/scripts/cron-alert.sh --notify-only chart-export "$exit_code" \
+    "chart-export.sh failed at line ${line}" >/dev/null 2>&1 || true
+  exit "$exit_code"
+}
+
+trap 'alert_failure $LINENO' ERR
 
 OUT="/tmp/chartroom-export.json"
 COMPACT_OUT="/tmp/chartroom-compact.json"
@@ -16,7 +26,7 @@ mkdir -p "$(dirname "$LOG")"
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] START chart-export" >> "$LOG"
 
 # Use the container's LanceDB directly to avoid MCP overhead
-docker compose exec -T openclaw-gateway node -e "
+docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway node -e "
 const lancedb = require('/home/node/.openclaw/mcp-servers/openclaw-gateway/node_modules/@lancedb/lancedb');
 (async () => {
   const db = await lancedb.connect('/home/node/.openclaw/memory/lancedb');

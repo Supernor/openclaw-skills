@@ -60,11 +60,25 @@ if [ -z "$RESULT_LABEL" ]; then
     esac
 fi
 
+should_alert_failure() {
+    [ "${CRON_WRAPPER_ALERTS:-1}" = "0" ] && return 1
+    [ "${CRON_ALERT_PARENT:-}" = "1" ] && return 1
+    [ "$EXIT_CODE" -eq 0 ] && return 1
+    case "$RESULT_LABEL" in
+        alerted|healthy|ok|issues_detected|no_action) return 1 ;;
+    esac
+    return 0
+}
+
 # Write to ops.db
 sqlite3 "$OPS_DB" "
 INSERT INTO cron_outcomes (job_name, exit_code, output_tail, duration_ms, result_label)
 VALUES ('$(echo "$JOB_NAME" | tr "'" "_")', $EXIT_CODE, '$(echo "$TAIL" | tr "'" "_" | head -c 500)', $DURATION, '$(echo "$RESULT_LABEL" | tr "'" "_")')
 " 2>/dev/null
+
+if should_alert_failure; then
+    /root/.openclaw/scripts/cron-alert.sh --notify-only "$JOB_NAME" "$EXIT_CODE" "$TAIL" >/dev/null 2>&1 || true
+fi
 
 # Also echo the output so existing log redirects still work
 echo "$OUTPUT"

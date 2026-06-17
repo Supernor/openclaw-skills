@@ -8,6 +8,7 @@
 set -uo pipefail
 OPS_DB="/root/.openclaw/ops.db"
 OPENCLAW_JSON="/root/.openclaw/openclaw.json"
+AGENT_ROSTER_JSON="/root/.openclaw/agent-roster.json"
 ISSUES=0
 WARNINGS=0
 
@@ -27,21 +28,182 @@ python_worker_pids() {
   '
 }
 
-# ── SECTION 1: Process Health (is exactly 1 of each running?) ──
-echo ""; echo "--- Processes ---"
-for proc in "host-ops-executor.py:Executor" "tap-daemon.py:Tap Bot" "telegram-listener.py:Telegram Listener" "backbone-listener.py:Backbone" "scribe-watcher.py:Scribe Watcher" "relay-handoff-watcher.py:Handoff Watcher"; do
-  name="${proc#*:}"; pattern="${proc%%:*}"
+human_name_from_script() {
+  local script="$1"
+  python3 - "$script" <<'PY' 2>/dev/null || printf "%s" "$script"
+import re, sys
+name = sys.argv[1].rsplit("/", 1)[-1]
+name = re.sub(r"\.(py|sh)$", "", name)
+name = name.replace("-", " ").replace("_", " ")
+print(" ".join(part.capitalize() for part in name.split()))
+PY
+}
+
+systemd_python_daemons() {
+  systemctl list-units --type=service --all --no-legend --no-pager 2>/dev/null |
+    awk '$1 ~ /^(openclaw|relay|host-ops).*\.service$/ {print $1}' |
+    while read -r svc; do
+      [ -n "$svc" ] || continue
+      local active enabled exec_start script desc
+      active=$(systemctl is-active "$svc" 2>/dev/null || true)
+      enabled=$(systemctl is-enabled "$svc" 2>/dev/null || true)
+      if [ "$active" != "active" ] && [ "$enabled" != "enabled" ]; then
+        continue
+      fi
+      exec_start=$(systemctl show "$svc" -p ExecStart --value 2>/dev/null)
+      script=$(printf "%s\n" "$exec_start" | grep -oE '(/[^[:space:];}]+/)?[A-Za-z0-9_.-]+\.py' | head -1)
+      [ -n "$script" ] || continue
+      script=$(basename "$script")
+      desc=$(systemctl show "$svc" -p Description --value 2>/dev/null)
+      printf "%s|%s|%s|%s|%s\n" "$script" "${desc:-$svc}" "$svc" "$active" "$enabled"
+    done | sort -u
+}
+
+observed_python_daemons() {
+  ps -ww -eo args= | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        n = split($i, parts, "/")
+        script = parts[n]
+        if (script ~ /^([A-Za-z0-9_.-]+-(daemon|listener|watcher|executor)\.py|dashboard-api\.py)$/) {
+          print script
+        }
+      }
+    }
+  ' | sort -u
+}
+
+expected_gateway_agent_count() {
+  python3 - "$AGENT_ROSTER_JSON" "$OPENCLAW_JSON" <<'PY' 2>/dev/null || printf "?"
+import json, sys
+for path in sys.argv[1:]:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        continue
+    if isinstance(data, list):
+        print(len(data))
+        raise SystemExit
+    agents = data.get("agents", {}).get("list") if isinstance(data, dict) else None
+    if isinstance(agents, list):
+        print(len(agents))
+        raise SystemExit
+print("?")
+PY
+}
+
+oc_health_json() {
+  oc health --json 2>&1 | python3 -c 'import sys; s=sys.stdin.read(); i=s.find("{"); print(s[i:] if i >= 0 else s)'
+}
+
+channel_health_status() {
+  local ch="$1"
+  python3 -c '
+import json, sys
+ch = sys.argv[1]
+d = json.load(sys.stdin)
+c = d.get("channels", {}).get(ch, {})
+probe = c.get("probe")
+if isinstance(probe, dict) and "ok" in probe:
+    print("ok" if probe.get("ok") else "fail")
+elif c.get("enabled") and c.get("configured") and c.get("running") and c.get("connected"):
+    print("ok")
+else:
+    print("fail")
+' "$ch"
+}
+
+bridge_unit_files() {
+  systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null |
+    awk '$1 ~ /^openclaw-bridge.*\.service$/ {print $1 "|" $2}' |
+    sort -u
+}
+
+active_bridge_services() {
+  systemctl list-units --type=service --state=running --no-legend --no-pager 2>/dev/null |
+    awk '$1 ~ /^openclaw-bridge.*\.service$/ {print $1}' |
+    sort -u
+}
+
+bridge_listeners() {
+  local svc pid pid_map pids line local_addr port mapped_svc
+  pid_map=""
+  pids="|"
+  while read -r svc; do
+    [ -n "$svc" ] || continue
+    pid=$(systemctl show "$svc" -p MainPID --value 2>/dev/null || true)
+    case "$pid" in
+      ""|0|*[!0-9]*) continue ;;
+    esac
+    pid_map="${pid_map}${pid}|${svc}"$'\n'
+    pids="${pids}${pid}|"
+  done <<< "$(active_bridge_services)"
+
+  [ "$pids" != "|" ] || return 0
+
+  ss -H -tlnp 2>/dev/null | while read -r line; do
+    local_addr=$(printf "%s\n" "$line" | awk '{print $4}')
+    port="${local_addr##*:}"
+    case "$port" in
+      ""|*[!0-9]*) continue ;;
+    esac
+    while IFS='|' read -r pid mapped_svc; do
+      [ -n "$pid" ] || continue
+      if printf "%s\n" "$line" | grep -q "pid=$pid,"; then
+        printf "%s|%s\n" "$port" "$mapped_svc"
+      fi
+    done <<< "$pid_map"
+  done | sort -n -u
+}
+
+check_python_daemon_instance() {
+  local pattern="$1"
+  local name="$2"
+  local owner="$3"
+  local PIDS COUNT
   PIDS=$(python_worker_pids "$pattern")
   COUNT=$(printf "%s\n" "$PIDS" | sed '/^$/d' | wc -l)
   if [ "$COUNT" -eq 0 ]; then
-    issue "$name is NOT running" "Crashed or killed" "Check systemd/cron guard. Restart: systemctl start openclaw-${name,,} or pgrep cron guard"
+    if [ "$owner" = "live process discovery" ]; then
+      issue "$name disappeared during process discovery" "Process table changed while system-troubleshoot.sh was running" "Re-run system-troubleshoot.sh; if repeated, inspect ps -ww -eo pid,args | grep '$pattern'"
+    else
+      issue "$name is NOT running" "$owner is active/enabled but no matching python worker was found" "Inspect: systemctl status $owner; journalctl -u $owner -n 80 --no-pager"
+    fi
   elif [ "$COUNT" -gt 1 ]; then
     PIDS=$(printf "%s\n" "$PIDS" | paste -sd, -)
-    issue "$name has $COUNT python processes (expected 1). PIDs: $PIDS" "Orphan from restart" "Kill all, restart: pkill -9 -f '$pattern'; restart via systemd"
+    if [ "$owner" = "live process discovery" ]; then
+      issue "$name has $COUNT python processes (expected 1). PIDs: $PIDS" "Duplicate worker discovered from live process table" "Inspect: ps -ww -p ${PIDS//,/ -p } -o pid,args; stop the duplicate only after confirming which supervisor owns it"
+    else
+      issue "$name has $COUNT python processes (expected 1). PIDs: $PIDS" "Duplicate worker for $owner" "Inspect: ps -ww -p ${PIDS//,/ -p } -o pid,args; restart only the owning service after confirming the duplicate"
+    fi
   else
-    echo "  $name: OK (1 instance)"
+    echo "  $name: OK (1 instance, $owner)"
   fi
-done
+}
+
+# ── SECTION 1: Process Health (is exactly 1 of each running?) ──
+echo ""; echo "--- Processes ---"
+SYSTEMD_DAEMONS=$(systemd_python_daemons)
+SYSTEMD_PATTERNS="|"
+if [ -z "$SYSTEMD_DAEMONS" ]; then
+  warn "No active/enabled OpenClaw Python systemd daemons discovered from systemctl"
+else
+  while IFS='|' read -r pattern name svc active enabled; do
+    [ -n "$pattern" ] || continue
+    SYSTEMD_PATTERNS="${SYSTEMD_PATTERNS}${pattern}|"
+    check_python_daemon_instance "$pattern" "$name" "$svc"
+  done <<< "$SYSTEMD_DAEMONS"
+fi
+
+OBSERVED_DAEMONS=$(observed_python_daemons)
+while read -r pattern; do
+  [ -n "$pattern" ] || continue
+  case "$SYSTEMD_PATTERNS" in
+    *"|$pattern|"*) continue ;;
+  esac
+  check_python_daemon_instance "$pattern" "$(human_name_from_script "$pattern")" "live process discovery"
+done <<< "$OBSERVED_DAEMONS"
 
 # Gateway (docker)
 GW_STATUS=$(docker inspect --format '{{.State.Status}}' openclaw-openclaw-gateway-1 2>/dev/null || echo "missing")
@@ -81,31 +243,44 @@ else
   echo "  Handoff watcher: OK (no duplicates)"
 fi
 
-# Bridge boot
-for svc in openclaw-bridge openclaw-bridge-corinne; do
-  if [ "$(systemctl is-enabled ${svc}.service 2>/dev/null)" != "enabled" ]; then
-    issue "${svc} not enabled at boot" "Won't survive reboot" "systemctl enable ${svc}.service"
+# Bridge boot: derive current Bridge units instead of naming retired services.
+BRIDGE_UNIT_FILES=$(bridge_unit_files)
+BRIDGE_ENABLED=$(printf "%s\n" "$BRIDGE_UNIT_FILES" | awk -F'|' '$2=="enabled" {print $1}' | paste -sd, -)
+if [ -z "$BRIDGE_ENABLED" ]; then
+  issue "No openclaw-bridge*.service unit is enabled at boot" "Bridge service naming changed or all Bridge services are disabled" "Inspect: systemctl list-unit-files 'openclaw-bridge*.service'"
+else
+  echo "  Bridge boot: enabled=${BRIDGE_ENABLED}"
+fi
+while read -r svc; do
+  [ -n "$svc" ] || continue
+  if ! printf "%s\n" "$BRIDGE_UNIT_FILES" | awk -F'|' -v svc="$svc" '$1==svc && $2=="enabled" {found=1} END {exit found ? 0 : 1}'; then
+    issue "$svc is active but not enabled at boot" "Running Bridge unit would not survive reboot" "Inspect: systemctl is-enabled $svc; enable the current Bridge unit if this service is canonical"
   fi
-done
+done <<< "$(active_bridge_services)"
 BR_DEAD=$(ls /etc/systemd/system/multi-user.target.wants/openclaw-dashboard.service 2>/dev/null)
 if [ -n "$BR_DEAD" ]; then
   issue "Dead symlink: openclaw-dashboard.service" "Points to missing unit file" "rm /etc/systemd/system/multi-user.target.wants/openclaw-dashboard.service"
 else
-  echo "  Bridge boot: OK (bridge + corinne enabled)"
+  echo "  Bridge symlinks: OK (no dead openclaw-dashboard.service)"
 fi
 
 # ── SECTION 1c: Gateway Deep Health ──
 echo ""; echo "--- Gateway Probes ---"
-GW_HEALTH=$(oc health --json 2>&1 | tail -n +2)
+GW_HEALTH=$(oc_health_json)
 if echo "$GW_HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d['ok'] else 1)" 2>/dev/null; then
   GW_AGENTS=$(echo "$GW_HEALTH" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('agents',[])))" 2>/dev/null || echo "?")
-  echo "  Gateway health: OK ($GW_AGENTS agents)"
-  if [ "${GW_AGENTS:-0}" -ne 18 ]; then
-    issue "Gateway has $GW_AGENTS agents (expected 18)" "Agent config missing or failed to load" "Check openclaw.json, restart gateway"
+  EXPECTED_AGENTS=$(expected_gateway_agent_count)
+  echo "  Gateway health: OK ($GW_AGENTS agents; roster expects $EXPECTED_AGENTS)"
+  if [ "$EXPECTED_AGENTS" = "?" ]; then
+    warn "Could not read expected gateway agent count from $AGENT_ROSTER_JSON or $OPENCLAW_JSON"
+  elif ! printf "%s" "$GW_AGENTS" | grep -Eq '^[0-9]+$'; then
+    issue "Gateway agent count is not numeric: $GW_AGENTS" "Gateway health JSON changed shape or parse failed" "Inspect: oc health --json"
+  elif [ "$GW_AGENTS" -ne "$EXPECTED_AGENTS" ]; then
+    issue "Gateway has $GW_AGENTS agents (expected $EXPECTED_AGENTS from agent-roster.json)" "Agent config missing or failed to load" "Compare $AGENT_ROSTER_JSON to oc health --json; restart gateway only after confirming config is correct"
   fi
   # Channel probes
   for ch in telegram discord; do
-    CH_OK=$(echo "$GW_HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if d['channels']['$ch']['probe']['ok'] else 'fail')" 2>/dev/null || echo "fail")
+    CH_OK=$(printf "%s" "$GW_HEALTH" | channel_health_status "$ch" 2>/dev/null || echo "fail")
     if [ "$CH_OK" = "ok" ]; then
       echo "  $ch: probe OK"
     else
@@ -197,15 +372,22 @@ done
 
 # ── SECTION 6: Bridge Health ──
 echo ""; echo "--- Bridge ---"
-for br_entry in "8082:Prod:openclaw-bridge" "8083:Dev:openclaw-bridge-dev" "8084:Corinne:openclaw-bridge-corinne"; do
-  BR_PORT="${br_entry%%:*}"; br_rest="${br_entry#*:}"; BR_NAME="${br_rest%%:*}"; BR_SVC="${br_rest#*:}"
+BRIDGE_LISTENERS=$(bridge_listeners)
+if [ -z "$BRIDGE_LISTENERS" ]; then
+  ACTIVE_BRIDGE_STATUS_TARGETS=$(active_bridge_services | paste -sd' ' -)
+  issue "No Bridge listener ports discovered from ss" "No running openclaw-bridge*.service MainPID owns a TCP listener" "Inspect: systemctl status ${ACTIVE_BRIDGE_STATUS_TARGETS:-openclaw-bridge*.service}; ss -tlnp"
+else
+  echo "  Discovered listeners: $(printf "%s\n" "$BRIDGE_LISTENERS" | awk -F'|' '{print ":" $1 " (" $2 ")"}' | paste -sd, -)"
+fi
+while IFS='|' read -r BR_PORT BR_SVC; do
+  [ -n "$BR_PORT" ] || continue
   BR_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://localhost:${BR_PORT}/api/health" 2>/dev/null || echo "000")
   if [ "$BR_CODE" = "200" ]; then
-    echo "  $BR_NAME (:${BR_PORT}): OK"
+    echo "  $BR_SVC (:${BR_PORT}): OK"
   else
-    issue "Bridge $BR_NAME not responding (HTTP $BR_CODE on :${BR_PORT})" "Crash or port conflict" "systemctl restart $BR_SVC"
+    issue "Bridge $BR_SVC not responding (HTTP $BR_CODE on :${BR_PORT})" "Listener exists but /api/health failed" "Inspect: curl -v http://localhost:${BR_PORT}/api/health; journalctl -u $BR_SVC -n 80 --no-pager"
   fi
-done
+done <<< "$BRIDGE_LISTENERS"
 
 # Dev/prod sync
 SYNC_ISSUES=0
