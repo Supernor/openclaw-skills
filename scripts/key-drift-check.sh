@@ -38,9 +38,11 @@ EXCLUDED_KEYS=(
 )
 # Excluded: config values that aren't secrets (ports, paths, feature flags)
 
-# Fixed: /app/.env doesn't exist inside the container. The real env file is on the host.
-# Why: the gateway gets env vars via docker-compose environment config, not a file at /app/
-ENV_FILE="${1:-/home/node/.openclaw/.env}"
+# The REAL env file with the canonical keys is /root/openclaw/.env (the docker-compose
+# env_file). The old default /home/node/.openclaw/.env is a stale 283-byte stub (it
+# symlinks to /root/.openclaw/.env) and made this check FAIL on every key — a false
+# positive. Default to the real file; still overridable via $1. (Fixed 2026-06-24.)
+ENV_FILE="${1:-/root/openclaw/.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo '{"status":"ERROR","message":"env file not found","file":"'"$ENV_FILE"'"}'
