@@ -8,9 +8,17 @@
 #       Previous approach used codex-run which depends on Codex OAuth health.
 #       This golden script always works regardless of model availability.
 #
-# DESIGN: Runs scripts inside the Docker container (where gh auth and git
-#         credential helpers are configured). Captures JSON output from each,
-#         aggregates into a summary. Non-zero exit = at least one backup failed.
+# DESIGN: Runs the backup scripts on the HOST (2026-06-24), where gh is authed
+#         dynamically (gh-token resolver + git credential helper). Previously ran
+#         them inside the gateway container, but the container holds a STATIC
+#         GH_TOKEN from .env env_file that goes stale on auth rotation (it was the
+#         revoked token after the 2026-06-24 lockout) and has no git credential
+#         helper -> in-container pushes 401'd. The repos live under
+#         /home/node/.openclaw/repos which is a symlink to /root/.openclaw/repos
+#         on the host, so the same script paths work host-side. Each step is
+#         wrapped `|| true` so one backup's failure is counted, not fatal (the
+#         suite is designed to run all backups and report per-step status).
+#         Captures JSON output from each, aggregates into a summary.
 #
 # TROUBLESHOOTING:
 #   - "docker compose exec" fails → container not running. Check: docker compose ps
@@ -46,7 +54,7 @@ echo "=== Backup Suite — $TIMESTAMP ==="
 
 # --- 1. env-backup (push .env key names to openclaw-config) ---
 echo "[1/5] env-backup..."
-ENV_OUT=$(run_in_container "/home/node/.openclaw/scripts/env-backup.sh")
+ENV_OUT=$(run_on_host "/home/node/.openclaw/scripts/env-backup.sh" || true)
 ENV_STATUS=$(echo "$ENV_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 ENV_PUSHED=$(echo "$ENV_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pushed','?'))" 2>/dev/null || echo "?")
 
@@ -61,7 +69,7 @@ echo "  -> $ENV_STATUS (pushed=$ENV_PUSHED)"
 
 # --- 2. skills-backup (push skills/hooks/scripts to openclaw-skills) ---
 echo "[2/5] skills-backup..."
-SKILLS_OUT=$(run_in_container "/home/node/.openclaw/scripts/skills-backup.sh")
+SKILLS_OUT=$(run_on_host "/home/node/.openclaw/scripts/skills-backup.sh" || true)
 SKILLS_STATUS=$(echo "$SKILLS_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 SKILLS_PUSHED=$(echo "$SKILLS_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pushed','?'))" 2>/dev/null || echo "?")
 [ "$SKILLS_STATUS" != "PASS" ] && FAILURES=$((FAILURES+1))
@@ -70,7 +78,7 @@ echo "  -> $SKILLS_STATUS (pushed=$SKILLS_PUSHED)"
 
 # --- 3. ws-backup (push workspace MD files to openclaw-workspace) ---
 echo "[3/5] workspace-backup..."
-WS_OUT=$(run_in_container "/home/node/.openclaw/scripts/ws-backup.sh" 2>&1 | grep -v "Permission denied" || true)
+WS_OUT=$(run_on_host "/home/node/.openclaw/scripts/ws-backup.sh" 2>&1 | grep -v "Permission denied" || true)
 WS_STATUS=$(echo "$WS_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 WS_PUSHED=$(echo "$WS_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pushed','?'))" 2>/dev/null || echo "?")
 [ "$WS_STATUS" != "PASS" ] && FAILURES=$((FAILURES+1))
@@ -92,7 +100,7 @@ echo "  -> $VPS_STATUS (pushed=$VPS_PUSHED)"
 
 # --- 5. repo-health (verify all 4 GitHub repos are fresh) ---
 echo "[5/5] repo-health..."
-HEALTH_OUT=$(run_in_container "/home/node/.openclaw/scripts/repo-health.sh")
+HEALTH_OUT=$(run_on_host "/home/node/.openclaw/scripts/repo-health.sh" || true)
 HEALTH_STATUS=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 STALE=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(sum(1 for r in json.load(sys.stdin).get('repos',[]) if r.get('stale')))" 2>/dev/null || echo "?")
 RESULTS="${RESULTS}repo-health: ${HEALTH_STATUS} (stale=${STALE})\n"

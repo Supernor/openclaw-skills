@@ -13,10 +13,10 @@ REPO="Supernor/openclaw-config"
 ENV_FILE="/root/openclaw/.env"
 LOG="/root/.openclaw/logs/sync-secrets.log"
 
-# Load GH_TOKEN
-if [ -z "$GH_TOKEN" ]; then
-    export GH_TOKEN=$(grep "^GH_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
-fi
+# Resolve GH_TOKEN LIVE (dynamic single source of truth = gh's stored login),
+# not a static .env copy that goes stale when auth rotates (2026-06-24 lockout).
+# `gh-token` strips any stale inherited GH_TOKEN, .env fallback if gh is down.
+export GH_TOKEN=$(/usr/local/bin/gh-token)
 
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" | tee -a "$LOG"; }
 

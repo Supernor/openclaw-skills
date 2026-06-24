@@ -13,7 +13,10 @@ set -eo pipefail
 
 ACTION="${1:-pull}"
 source /root/openclaw/.env 2>/dev/null || true
-export GH_TOKEN
+# Resolve GH_TOKEN LIVE (overriding the possibly-stale value just sourced from
+# .env): dynamic single source of truth = gh's stored login. The 2026-06-24
+# lockout broke a month of vault syncs because this used a static .env token.
+export GH_TOKEN=$(/usr/local/bin/gh-token)
 
 REPO="Supernor/openclaw-config"
 CRED_BASE="/root/.openclaw/gws-credentials"

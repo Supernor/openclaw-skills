@@ -18,12 +18,11 @@ if [[ ! "$COMMAND" == gh\ * ]]; then
     exit 1
 fi
 
-# Load GH_TOKEN from .env if not already set
-if [ -z "$GH_TOKEN" ]; then
-    if [ -f /root/openclaw/.env ]; then
-        export GH_TOKEN=$(grep "^GH_TOKEN=" /root/openclaw/.env | cut -d= -f2-)
-    fi
-fi
+# Resolve the GitHub token LIVE (dynamic single source of truth = gh's stored
+# login), not a static .env copy that goes stale when auth rotates (the
+# 2026-06-24 lockout broke a month of backups exactly this way). `gh-token`
+# strips any stale inherited GH_TOKEN and falls back to .env only if gh is down.
+export GH_TOKEN=$(/usr/local/bin/gh-token)
 
 if [ -z "$GH_TOKEN" ]; then
     echo "ERROR: GH_TOKEN not set. Add to /root/openclaw/.env"
