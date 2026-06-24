@@ -102,9 +102,10 @@ echo "  -> $VPS_STATUS (pushed=$VPS_PUSHED)"
 echo "[5/5] repo-health..."
 HEALTH_OUT=$(run_on_host "/home/node/.openclaw/scripts/repo-health.sh" || true)
 HEALTH_STATUS=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
-STALE=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(sum(1 for r in json.load(sys.stdin).get('repos',[]) if r.get('stale')))" 2>/dev/null || echo "?")
-RESULTS="${RESULTS}repo-health: ${HEALTH_STATUS} (stale=${STALE})\n"
-echo "  -> $HEALTH_STATUS (stale repos: $STALE)"
+HEALTH_SUMMARY=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('summary',''))" 2>/dev/null || echo "")
+[ "$HEALTH_STATUS" != "PASS" ] && FAILURES=$((FAILURES+1))
+RESULTS="${RESULTS}repo-health: ${HEALTH_STATUS}\n"
+echo "  -> $HEALTH_STATUS — ${HEALTH_SUMMARY}"
 
 # --- 5. Update LAST_RUN.md audit trail ---
 if [ -f "$LAST_RUN" ]; then
@@ -119,10 +120,29 @@ fi
 echo ""
 echo "=== Summary ==="
 echo -e "$RESULTS"
+
+# Self-explaining failures: for any step that isn't PASS, print its own reason
+# (the script's JSON "message"/"summary") so no one has to go digging. Robert:
+# "a warning shouldn't need exploration to understand what it's warning about."
+print_reason() {  # $1=label  $2=status  $3=json-output
+    [ "$2" = "PASS" ] && return 0
+    local why
+    why=$(echo "$3" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message') or d.get('summary') or 'no reason reported by the script')" 2>/dev/null || echo "could not parse $1 output")
+    echo "  ! ${1} (${2}): ${why}"
+}
+if [ "$FAILURES" -ne 0 ]; then
+    echo "WHY:"
+    print_reason "env-backup"       "$ENV_STATUS"    "$ENV_OUT"
+    print_reason "skills-backup"    "$SKILLS_STATUS" "$SKILLS_OUT"
+    print_reason "workspace-backup" "$WS_STATUS"     "$WS_OUT"
+    print_reason "vps-backup"       "$VPS_STATUS"    "$VPS_OUT"
+    print_reason "repo-health"      "$HEALTH_STATUS" "$HEALTH_OUT"
+fi
+
 if [ "$FAILURES" -eq 0 ]; then
     echo "RESULT: ALL PASSED"
     exit 0
 else
-    echo "RESULT: ${FAILURES} FAILURE(S)"
+    echo "RESULT: ${FAILURES} FAILURE(S) — see WHY above"
     exit 1
 fi
