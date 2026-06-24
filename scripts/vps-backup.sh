@@ -44,12 +44,14 @@ command -v rsync  >/dev/null 2>&1 || die "rsync not found"
 command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 not found"
 [ -x "$GUARD" ] || die "secrets guard not executable at $GUARD"
 
-# --- Resolve PAT from an existing Supernor remote URL (same pattern as the
-#     other three repos; deferred to a separate plan to rotate). ---
-PAT=$(cd /root/adaptive-project-system 2>/dev/null && \
-      git remote get-url origin 2>/dev/null | grep -oE 'ghp_[A-Za-z0-9]+' | head -1 || true)
-[ -n "$PAT" ] || die "could not extract PAT from /root/adaptive-project-system remote URL"
-REPO_URL_AUTH="https://x-access-token:${PAT}@github.com/Supernor/openclaw-vps.git"
+# --- GitHub auth: clean URL + gh credential helper (DYNAMIC token).
+#     Previously this extracted a STATIC PAT (ghp_...) from another repo's remote
+#     URL and embedded it as x-access-token@github.com — the static-token
+#     anti-pattern that silently broke on the 2026-06-24 auth rotation/lockout.
+#     Now git resolves the LIVE token via the gh credential helper (configured by
+#     `gh auth setup-git`), so there is no static token to go stale.
+#     Chart: fix-github-token-dynamic-20260624. ---
+REPO_URL_AUTH="$REPO_URL_NOAUTH"
 
 # --- Clone or fast-forward ---
 if [ ! -d "$REPO_PATH/.git" ]; then

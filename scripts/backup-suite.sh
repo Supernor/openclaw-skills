@@ -89,7 +89,7 @@ echo "  -> $WS_STATUS (pushed=$WS_PUSHED)"
 #       Runs ON HOST (not container) — needs /usr/local/bin, /etc/systemd, etc.
 #       Aborts on secret-pattern hits via vps-backup-secrets-guard.sh.
 echo "[4/5] vps-backup..."
-VPS_OUT=$(run_on_host "/root/.openclaw/scripts/vps-backup.sh")
+VPS_OUT=$(run_on_host "/root/.openclaw/scripts/vps-backup.sh" || true)
 VPS_STATUS=$(echo "$VPS_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 VPS_PUSHED=$(echo "$VPS_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pushed','?'))" 2>/dev/null || echo "?")
 # BLOCKED is a guard-fired abort — bad enough to count as a failure (it means
