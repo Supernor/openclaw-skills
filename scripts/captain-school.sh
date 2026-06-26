@@ -31,7 +31,7 @@ fi
 # Bridge status: query live
 BRIDGE_PROD=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/api/health 2>/dev/null || echo "down")
 BRIDGE_DEV=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/api/health 2>/dev/null || echo "down")
-BRIDGE_INFO="Bridge prod: http://localhost:8082 (status: $BRIDGE_PROD) | Bridge dev: http://localhost:8083 (status: $BRIDGE_DEV)
+BRIDGE_INFO="Bridge prod: http://host.docker.internal:8082 (status: $BRIDGE_PROD) | Bridge dev: http://host.docker.internal:8083 (status: $BRIDGE_DEV) — in-container agents use host.docker.internal, NOT localhost.
 Dev/prod workflow: all edits go to dev, Deploy button promotes.
 Full reference: docs/mcp-tools-reference.md — agents should call capabilities MCP tool to self-discover."
 
@@ -104,7 +104,7 @@ fi
 ARCH_FACTS="Task execution: host-ops-executor (systemd, 30s poll) for host_op tasks. task-runner (cron 15m) for generic tasks.
 Concurrency cap: 2 system-wide. Circuit breaker: 3 failures/hour.
 Self-decomposition: failed tasks output JSON subtasks.
-Agents access system state via Bridge API (browser tool) at localhost:8082."
+Agents access system state via Bridge API (browser tool) at host.docker.internal:8082 (in-container — NOT localhost)."
 
 # --- Build the school briefing ---
 # Priority ordered: most critical first. Agents weight top content higher.

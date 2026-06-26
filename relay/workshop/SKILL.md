@@ -1,9 +1,9 @@
 ---
 name: workshop
 description: Route ideas to The Workshop (Scribe on Telegram). Creates Intake topics for structured intent capture.
-version: 1.0.0
+version: 1.1.0
 author: relay
-tags: [workshop, idea, intake, scribe]
+tags: [workshop, idea, intake, scribe, projects]
 ---
 
 # workshop -- Route to The Workshop
@@ -85,6 +85,39 @@ If the SQLite insert fails:
 1. Try CLI: `exec workshop-submit.sh "{idea text}" "spec-projects" "routine"`
 2. If that also fails, tell the user and log the failure.
 3. Still attempt Scribe routing — the idea shouldn't be lost just because ops.db is down.
+
+## Track as a project (longer, multi-dispatch work)
+
+Most ideas stay as Intake (above). When an idea becomes an ACTIVE effort that will span MANY dispatches —
+a build Robert wants to watch as one thing — register a row in the `projects` table so it shows as a single
+card in the Bridge Workshop "Projects" group (rolled-up child counts, next action, latest step) instead of
+flooding the queue with loose tasks.
+
+1. Create the project row (in-container python against ops.db):
+
+```python
+import sqlite3, os
+db = sqlite3.connect(os.path.expanduser("~/.openclaw/ops.db"))
+pid = db.execute(
+    "INSERT INTO projects (title, status, agent, next_action, aps_id) VALUES (?, 'active', ?, ?, ?)",
+    ("<short project title>", "<owning agent, e.g. spec-dev>", "<the immediate next step>", "<intake task id / APS id, optional>")
+).lastrowid
+db.commit(); db.close()
+print("project", pid)
+```
+
+2. Tag every child dispatch with that project id (9th arg of workshop-submit.sh):
+
+   `bash ~/.openclaw/scripts/workshop-submit.sh "<task>" <agent> <urgency> "<context>" <host_op> direct "" "" <pid>`
+
+3. Keep the card current as work moves — update `status` (active/paused/blocked/done), `next_action`, `progress_note`:
+
+   `UPDATE projects SET status='done', next_action='', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=<pid>`
+
+4. Point Robert at the card: "Tracking '<name>' on Bridge Workshop — I'll post milestones, not every step."
+
+The `projects` row is the LIVE tracker; the Scribe/spec-projects intake (Steps 1-4 above) stays the
+"why/strategy" backing — link them via `aps_id`. One flow, not competing paths.
 
 ## Rules
 

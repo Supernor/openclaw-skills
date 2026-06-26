@@ -3,7 +3,7 @@
 # Works even when gateway MCP is down.
 #
 # Usage:
-#   workshop-submit.sh "task description" [agent] [urgency] [context]
+#   workshop-submit.sh "task description" [agent] [urgency] [context] [host_op] [routing_mode] [blocked_by] [timeout_s] [project_id]
 #
 # Examples:
 #   workshop-submit.sh "Workshop Intake: Real-time agent dashboard"
@@ -20,6 +20,7 @@ HOST_OP="${5:-reactor-dispatch}"
 ROUTING_MODE="${6:-direct}"
 BLOCKED_BY="${7:-}"
 TIMEOUT_S="${8:-}"   # optional stall-ceiling seconds for engine ops (codex/claude reason silently >180s)
+PROJECT_ID="${9:-}"  # optional ops.db projects.id — links this task to a Workshop project for rollup
 
 # Captain = delegate mode by default
 if [ "$AGENT" = "main" ] && [ "$ROUTING_MODE" = "direct" ]; then
@@ -80,13 +81,14 @@ print(json.dumps(m))
 TASK_ID=$(python3 -c "
 import sqlite3, sys, json
 db = sqlite3.connect(sys.argv[1])
+project_id = int(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8].strip().isdigit() else None
 db.execute(
-    'INSERT INTO tasks (agent, urgency, status, task, context, meta, blocked_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    (sys.argv[2], sys.argv[3], 'pending', sys.argv[4], sys.argv[5] or None, sys.argv[6], sys.argv[7] or None)
+    'INSERT INTO tasks (agent, urgency, status, task, context, meta, blocked_by, project_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    (sys.argv[2], sys.argv[3], 'pending', sys.argv[4], sys.argv[5] or None, sys.argv[6], sys.argv[7] or None, project_id)
 )
 db.commit()
 print(db.execute('SELECT last_insert_rowid()').fetchone()[0])
 db.close()
-" "$OPS_DB" "$AGENT" "$URGENCY" "$TASK" "$CONTEXT" "$META" "$BLOCKED_BY")
+" "$OPS_DB" "$AGENT" "$URGENCY" "$TASK" "$CONTEXT" "$META" "$BLOCKED_BY" "$PROJECT_ID")
 
 echo "Task #${TASK_ID} created [${AGENT}/${URGENCY}/${HOST_OP}]: ${TASK}"
