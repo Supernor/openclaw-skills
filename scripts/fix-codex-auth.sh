@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# ⚠️ STALE PATH WARNING (2026-06-29): OpenClaw 2026.6.10 MIGRATED agent auth from auth-profiles.json
+# into a per-agent SQLite store (agents/<agent>/agent/openclaw-agent.sqlite). This script's fast path
+# calls sync-codex-auth.sh, which writes the now-DEAD /root/.openclaw/agents/main/agent/auth-profiles.json
+# path -> it reports success but the gateway IGNORES it (gpt-5.5 stays on nemotron fallback).
+# USE INSTEAD:
+#   openai/gpt-5.5 token refresh:  /root/.openclaw/scripts/sync-openai-token.sh  (pastes the valid host
+#     token into the LIVE sqlite store via `openclaw models auth paste-token` — sanctioned; daily cron).
+#   full re-auth (host token also expired): `openclaw models auth login --provider openai --device-code`
+#     INSIDE the container (needs Robert's browser). See chart issue-update-auth-migrated-to-sqlite-20260629.
+#
 # fix-codex-auth.sh — THE entry point for Codex auth problems.
 #
 # WHEN TO USE: Any agent seeing "Codex auth expired", "openai-codex rate-limited",

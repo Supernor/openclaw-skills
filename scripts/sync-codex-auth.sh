@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# ⚠️ STALE (2026-06-29) — DO NOT USE for openai/gpt-5.5. OpenClaw 2026.6.10 moved agent auth into a
+# per-agent SQLite store; this script still writes /root/.openclaw/agents/main/agent/auth-profiles.json
+# (now MISSING — the gateway no longer reads it). It "succeeds" but changes nothing the gateway uses.
+# ✅ Use /root/.openclaw/scripts/sync-openai-token.sh instead. Chart issue-update-auth-migrated-to-sqlite-20260629.
+#
 # sync-codex-auth.sh — SYNC ONLY: copies host CLI tokens into gateway auth-profiles.
 #
 # NOTE FOR AGENTS: This is the SYNC step only. If you're trying to FIX Codex auth,

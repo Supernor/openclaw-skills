@@ -70,13 +70,24 @@ for CFG in "${CONFIGS[@]}"; do
     fi
 done
 
-# 3. Copy auth profiles
+# 3. Copy auth profiles (LEGACY) + the LIVE per-agent auth store.
+# OpenClaw 2026.6.10 migrated auth auth-profiles.json -> agents/<a>/agent/openclaw-agent.sqlite, so
+# the legacy file below is now usually MISSING (the [ -f ] just skips it) = this backup was capturing
+# ZERO auth. Back up the real sqlite stores too. See chart issue-update-auth-migrated-to-sqlite-20260629.
 AUTH_SRC="${BASE}/agents/main/agent/auth-profiles.json"
 if [ -f "$AUTH_SRC" ]; then
     mkdir -p "${BACKUP_DIR}/auth"
     cp "$AUTH_SRC" "${BACKUP_DIR}/auth/"
-    log "  Auth profiles backed up"
+    log "  Auth profiles (legacy) backed up"
 fi
+_authn=0
+for f in "${BASE}"/agents/*/agent/openclaw-agent.sqlite; do
+    [ -e "$f" ] || continue
+    agent=$(basename "$(dirname "$(dirname "$f")")")
+    mkdir -p "${BACKUP_DIR}/auth-sqlite/${agent}"
+    cp "$f" "${BACKUP_DIR}/auth-sqlite/${agent}/" 2>/dev/null && _authn=$((_authn+1))
+done
+log "  Agent auth sqlite backed up (${_authn} agents)"
 
 # 4. Copy LanceDB vector data (skip sqlite, already backed up above)
 if [ -d "${BASE}/memory/lancedb" ]; then
