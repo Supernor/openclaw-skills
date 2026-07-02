@@ -84,6 +84,54 @@ health_emit() {
     >> /root/.openclaw/health/buffer.jsonl 2>/dev/null || true
 }
 
+# --- Content validation (added 2026-07-01, task #3756) ---
+# A length check alone let meta/refusal text ("I don't have shell access...",
+# "I'll append a brief journal note...") pass as a real diary and get posted +
+# marked ok (Jun 29 & Jun 30, 2026). validate_diary rejects anything that is not
+# an actual diary. Returns 0 = valid diary, 1 = reject (caller must NOT post it).
+# $1 = candidate diary text. Logs the specific reason on rejection.
+validate_diary() {
+  local text="$1"
+  local low
+  low=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')
+
+  # 1) Canonical header: must contain "Daily Diary" AND the target date.
+  if ! printf '%s' "$low" | grep -q "daily diary"; then
+    log "REJECT: missing 'Daily Diary' header"
+    return 1
+  fi
+  if ! printf '%s' "$text" | grep -qF "$DATE"; then
+    log "REJECT: header missing target date $DATE"
+    return 1
+  fi
+
+  # 2) At least one required diary section header must be present.
+  #    (labels are stable even if the leading emoji is dropped)
+  if ! printf '%s' "$text" | grep -qiE 'WINS|LOSSES|SIDE WINS|DISCOVERIES|WHAT MAKES SENSE|FAMILY NOTES'; then
+    log "REJECT: no diary section headers (WINS/LOSSES/DISCOVERIES/...)"
+    return 1
+  fi
+
+  # 3) Reject tool/access/meta responses even if they somehow echo the header.
+  local bad='shell access|file access|do not have access|dont have access|don.t have access|i do not have|i don.t have|i cannot|i can.t|i.m unable|i am unable|ready to post|run this (on|in) (the )?host|run it on the host|paste this|i.ll (append|add|run|post|write)|i will (append|add|run|post|write)|let me know if|as an ai|doctor warnings|config warnings|no shell'
+  if printf '%s' "$low" | grep -qiE "$bad"; then
+    local hit
+    hit=$(printf '%s' "$low" | grep -oiE "$bad" | head -1)
+    log "REJECT: meta/access/tool phrase detected ('$hit')"
+    return 1
+  fi
+
+  # 4) Reject content that is only code fences / whitespace once markers stripped.
+  local stripped
+  stripped=$(printf '%s' "$text" | sed -E 's/```[a-zA-Z]*//g' | tr -d '[:space:]`')
+  if [ ${#stripped} -lt 120 ]; then
+    log "REJECT: effectively empty after stripping fences/whitespace (${#stripped} chars)"
+    return 1
+  fi
+
+  return 0
+}
+
 # --- Preflight ---
 command -v "$OC" >/dev/null 2>&1 || die "oc CLI not found at $OC"
 command -v claude >/dev/null 2>&1 || die "claude CLI not found (host Max plan)"
@@ -257,7 +305,7 @@ If any step fails, still complete the remaining steps and note what failed."
   if out=$("$OC" agent --agent "$AGENT" --message "$hist_prompt" --timeout "$TIMEOUT" 2>&1 | grep -v "level=warning"); then
     # Transport success != work success: the agent can return an error payload or
     # near-empty text (seen 2026-06-11: "Agent couldn't generate a response" logged as complete).
-    if printf '%s' "$out" | grep -qi "couldn't generate a response" || [ "${#out}" -lt 200 ]; then
+    if printf '%s' "$out" | grep -qiE "couldn't generate a response|do(n.t| not) have (shell |file )?access|no shell access|i cannot generate|unable to generate" || [ "${#out}" -lt 200 ]; then
       log "Historian fallback FAILED (error marker or short output, ${#out} chars)"
       log "Historian output (first 500): ${out:0:500}"
       output-taint mark --agent "$AGENT" --reason "empty/error output"         --output "${out:0:500}" --source daily-diary 2>/dev/null || true
@@ -295,11 +343,15 @@ set -e
 
 if [ $CLAUDE_RC -eq 0 ] && [ -s "$CLAUDE_OUT" ]; then
   DIARY=$(cat "$CLAUDE_OUT")
-  if [ ${#DIARY} -gt 200 ]; then
-    PRIMARY_OK=true
-    log "Primary (claude CLI) succeeded (${#DIARY} chars)"
-  else
+  if [ ${#DIARY} -le 200 ]; then
     log "Primary (claude CLI) returned suspiciously short output (${#DIARY} chars) — treating as failure"
+  elif ! validate_diary "$DIARY"; then
+    log "Primary (claude CLI) output FAILED content validation (${#DIARY} chars) — treating as failure, first 200: ${DIARY:0:200}"
+    output-taint mark --agent claude-cli --reason "invalid diary content" \
+      --output "${DIARY:0:500}" --source daily-diary 2>/dev/null || true
+  else
+    PRIMARY_OK=true
+    log "Primary (claude CLI) succeeded + validated (${#DIARY} chars)"
   fi
 else
   log "Primary (claude CLI) failed (exit $CLAUDE_RC, output bytes=$(stat -c%s "$CLAUDE_OUT" 2>/dev/null || echo 0))"

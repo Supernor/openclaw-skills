@@ -31,7 +31,7 @@ if [ -z "$WEBHOOK_URL" ]; then
 fi
 
 # Bot name per channel
-NAMES='{"codex":"Codex","gemini":"Gemini","gateway":"Gateway","reactor":"Reactor"}'
+NAMES='{"codex":"Codex","gemini":"Gemini","gateway":"Gateway","reactor":"Reactor","nemotron":"Nemotron"}'
 BOT_NAME=$(echo "$NAMES" | python3 -c "import json,sys; print(json.load(sys.stdin).get('$CHANNEL','OpenClaw'))" 2>/dev/null || echo "OpenClaw")
 
 MODE="${1:?Usage: ops-post.sh [--channel name] <message> OR --embed <title> <description>}"

@@ -35,10 +35,10 @@ PATTERNS=(
   '"refresh_token"[[:space:]]*:[[:space:]]*"[A-Za-z0-9_~.-]+"'
   'ghp_[A-Za-z0-9]{30,}'            # GitHub PATs
   'ghs_[A-Za-z0-9]{30,}'            # GitHub App tokens
-  'sk-ant-[A-Za-z0-9_-]+'           # Anthropic API key shape
-  'sk-proj-[A-Za-z0-9_-]+'          # OpenAI project key shape
+  'sk-ant-[A-Za-z0-9_-]{20,}'       # Anthropic API key shape ({20,}: real keys are 90+ chars; unbounded '+' false-positived on the prose string 'sk-ant-oat' in a memory .md — 2026-07-01)
+  'sk-proj-[A-Za-z0-9_-]{20,}'      # OpenAI project key shape (bounded to avoid prose false-positives, same as sk-ant)
   'AIza[A-Za-z0-9_-]{30,}'          # Google API key shape
-  'xoxb-[A-Za-z0-9-]+'              # Slack bot token shape
+  'xoxb-[A-Za-z0-9-]{20,}'          # Slack bot token shape (bounded to avoid prose false-positives)
 )
 
 HITS=()
