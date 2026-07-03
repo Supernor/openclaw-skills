@@ -170,6 +170,20 @@ ALERTS=""
 RECOVERED=""
 GATEWAY_WAS_DOWN_THIS_RUN=0
 RECOVERY_SOURCE=""
+DISCORD_HEALTH_DEGRADED=0
+DISCORD_DELIVERY_OK=""   # set to 0/1 by send_alert; empty means delivery was never attempted this run
+
+# Early host-pressure indicator (used ONLY to soften health-degradation wording): a stalled
+# gateway event loop under CPU/memory pressure makes `openclaw health` emit transient bad/partial
+# statuses even when the Discord/Telegram DELIVERY paths still work. Full remediation is in
+# Checks 5/5b below — this is a cheap read, not a replacement for them.
+HOST_UNDER_PRESSURE=0
+_NCPU_EARLY=$(nproc 2>/dev/null || echo 2)
+_LOAD_EARLY=$(awk '{printf "%d", $1}' /proc/loadavg 2>/dev/null || echo 0)
+_MEM_EARLY=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 9999)
+if [ "$_LOAD_EARLY" -gt "$_NCPU_EARLY" ] || [ "$_MEM_EARLY" -lt 600 ]; then
+  HOST_UNDER_PRESSURE=1
+fi
 
 # Check 1: Is the gateway container running?
 CONTAINER_STATUS=$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null) || { log "CHECK FAILED: docker inspect"; CHECK_ERRORS=$((CHECK_ERRORS+1)); CONTAINER_STATUS="missing"; }
@@ -238,14 +252,32 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
   #   3. Check gateway logs for "[discord] channel exited" — SDK version mismatch.
   # TWO DISCORD PATHS: Bot (via gateway plugin) handles DMs/channels. Webhooks (reactor-post.sh)
   # handle ops updates independently. Robert may still see Discord updates even when bot is down.
+  # TRUTHFUL WORDING (task #3772, 2026-07-03): a degraded/partial Discord health line does NOT
+  # prove the bot is down. Under host CPU/memory pressure the gateway event loop stalls and
+  # `openclaw health` emits a transient non-healthy Discord status (or cut output) while the
+  # Discord DELIVERY path still works — proven every time this very alert is delivered to Discord
+  # (send_alert below returns a message id). So we separate two independent signals:
+  #   (a) connector HEALTH degraded  — the health probe line isn't ok/configured/connected/running
+  #   (b) DELIVERY failed            — a live `openclaw message send` to Discord returns no message id
+  # We only ever claim the bot is DOWN when BOTH fail (reconciled after send, below). Until then the
+  # wording says "health degraded" / "delivery path may still work", never "bot is DOWN".
+  # Robert flagged the old wording: a "Discord bot is DOWN" Telegram alert that also arrived in Discord.
   if echo "$HEALTH" | grep -qE "Discord:"; then
     if echo "$HEALTH" | grep -qE "Discord: (ok|configured|connected|running)"; then
-      if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('discord')=='down' else 1)" 2>/dev/null; then
+      if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('discord') in ('down','degraded') else 1)" 2>/dev/null; then
         RECOVERED="${RECOVERED}Discord bot recovered. "
       fi
     else
-      ALERTS="${ALERTS}Discord bot is DOWN (health line present but unhealthy). Check: docker compose logs openclaw-gateway | grep discord. "
-      log "ALERT: Discord down (health line present but not ok/configured/connected/running)"
+      DISCORD_HEALTH_DEGRADED=1
+      DISCORD_HEALTH_STATUS=$(echo "$HEALTH" | grep -oiE "Discord:[[:space:]]*[A-Za-z0-9_.-]+" | head -1 | sed -E 's/.*Discord:[[:space:]]*//')
+      [ -z "$DISCORD_HEALTH_STATUS" ] && DISCORD_HEALTH_STATUS="unknown/empty"
+      if [ "$HOST_UNDER_PRESSURE" = "1" ]; then
+        ALERTS="${ALERTS}Discord health check degraded during host pressure (status: ${DISCORD_HEALTH_STATUS}); delivery path still may work — this alert is being sent to Discord as a live delivery test. "
+        log "ALERT: Discord health degraded under host pressure (status='${DISCORD_HEALTH_STATUS}') — NOT declaring bot down; delivery verified after send"
+      else
+        ALERTS="${ALERTS}Discord connector health degraded (status: ${DISCORD_HEALTH_STATUS}); verifying delivery — if this alert reached Discord the bot is up, only the health line was stale. "
+        log "ALERT: Discord health degraded (status='${DISCORD_HEALTH_STATUS}') — delivery verification pending, not yet declaring down"
+      fi
     fi
   else
     log "INFO: No Discord health line — plugin may not be loaded. See procedure-discord-plugin-update chart."
@@ -594,7 +626,9 @@ RATE_LIMITED="false"
 FAILURES=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('consecutive_failures',0))" 2>/dev/null) || FAILURES=0
 
 if echo "$ALERTS" | grep -q "Telegram"; then TELEGRAM_STATE="down"; fi
-if echo "$ALERTS" | grep -q "Discord"; then DISCORD_STATE="down"; fi
+# Discord: a degraded health line alone is 'degraded' (delivery may still work), not 'down'.
+# The final 'down' verdict is reconciled after send using the live delivery result (two-signal).
+if [ "$DISCORD_HEALTH_DEGRADED" = "1" ]; then DISCORD_STATE="degraded"; fi
 if echo "$ALERTS" | grep -q "Rate limit"; then RATE_LIMITED="true"; fi
 
 if [ -n "$ALERTS" ]; then
@@ -630,11 +664,21 @@ send_alert() {
   # ALWAYS send via direct Telegram (no gateway dependency)
   telegram_direct "$MSG"
 
-  # If gateway is running, also send rich Discord message with buttons
+  # If gateway is running, also send rich Discord message with buttons.
+  # Capture the send result so callers can PROVE whether Discord delivery actually worked
+  # (a "Message ID"/"Sent via Discord" line == accepted). This is signal (b) of the two-signal
+  # Discord truth check — it is what lets us distinguish "health line stale" from "bot really down".
   if [ "$CONTAINER_STATUS" = "running" ]; then
-    docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway \
+    local DC_OUT
+    DC_OUT=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway \
       openclaw message send --channel discord --target "$DISCORD_OPS_ALERTS" \
-      --message "$MSG" 2>/dev/null | grep -v "level=warning" | tail -1
+      --message "$MSG" 2>/dev/null | grep -v "level=warning")
+    echo "$DC_OUT" | tail -1
+    if echo "$DC_OUT" | grep -qiE "message id|sent via discord|delivered|\"ok\"[[:space:]]*:[[:space:]]*true"; then
+      DISCORD_DELIVERY_OK=1
+    else
+      DISCORD_DELIVERY_OK=0
+    fi
   fi
 }
 
@@ -683,6 +727,30 @@ Checked: $(date -u +%H:%M) UTC"
   else
     log "Alert suppressed (same as last, ${MINUTES_SINCE_ALERT}m since last send, failures=$FAILURES)"
   fi
+fi
+
+# Two-signal Discord truth reconciliation: now that a live Discord send has (or hasn't) happened,
+# reconcile the persisted state. Only declare the bot DOWN when health was degraded AND the live
+# delivery failed. If delivery succeeded, the health line was merely stale — keep 'degraded', not 'down'.
+# DISCORD_DELIVERY_OK is empty when no send was attempted this run (alert suppressed) — leave 'degraded'.
+if [ "$DISCORD_HEALTH_DEGRADED" = "1" ] && [ -n "$DISCORD_DELIVERY_OK" ]; then
+  if [ "$DISCORD_DELIVERY_OK" = "1" ]; then
+    RECONCILED_DC="degraded"
+    log "DISCORD: delivery CONFIRMED working (message accepted) despite degraded health line — connector likely fine, health probe raced (host_under_pressure=${HOST_UNDER_PRESSURE}). NOT declaring bot down."
+  else
+    RECONCILED_DC="down"
+    log "DISCORD: CONFIRMED DOWN — two-signal: health line degraded AND live Discord send returned no message id."
+  fi
+  python3 -c "
+import json
+try:
+    with open('$STATE_FILE') as f: s = json.load(f)
+except Exception:
+    s = {}
+s['discord'] = '$RECONCILED_DC'
+with open('$STATE_FILE', 'w') as f:
+    json.dump(s, f, indent=2)
+" 2>/dev/null || log "DISCORD: failed to persist reconciled state"
 fi
 
 # Send recovery notices
