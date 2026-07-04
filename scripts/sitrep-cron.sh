@@ -78,6 +78,27 @@ SCOPE_SYSTEM=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM scope WHER
 SCOPE_MODE=${SCOPE_GATE_MODE:-shadow}
 SCOPE_GATE_LOG_24H=$(sqlite3 /root/.openclaw/scope.db "SELECT COUNT(*) FROM gate_log WHERE ts > strftime('%Y-%m-%dT%H:%M:%SZ','now', '-24 hours')" 2>/dev/null || echo "0")
 
+# KnownSelf registry freshness (mem:drift) — the freshness loop's scheduled
+# beat (A1b). Running mem-drift-check.py (NOT --dry) UPSERTS the mem:drift row
+# into signal_status, which the Bridge host-signals grid / MOTD / nightly
+# digest already read; we also capture it for the sitrep section below. It is
+# READ-ONLY on mem_* (its only write is that one signal row) and exits 0 even
+# when drift exists (only the signal carries state), so `set -uo pipefail`
+# will not abort the sitrep run on drift. No new cron — this rides the
+# existing 4h sitrep beat.
+MEM_DRIFT=$(python3 /root/.openclaw/scripts/mem-drift-check.py --json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d['status'].upper()+'/'+d['severity']+' | '+d['value'])
+    print(d['message'])
+except Exception:
+    print('unavailable')
+    print('mem-drift-check produced no report (registry unseeded or ops.db unreadable)')
+" 2>/dev/null) || MEM_DRIFT=$'unavailable\nmem-drift-check failed to run'
+MEM_DRIFT_STATUS=$(printf '%s\n' "$MEM_DRIFT" | head -1)
+MEM_DRIFT_MSG=$(printf '%s\n' "$MEM_DRIFT" | tail -1)
+
 # --- Build sitrep ---
 
 cat > "$SITREP_FILE" << EOF
@@ -104,6 +125,10 @@ ${SAT_SUMMARY}
 ## Context Boundaries (Phase 5)
 - Scope entries: ${SCOPE_TOTAL} | System: ${SCOPE_SYSTEM} | Mode: ${SCOPE_MODE}
 - Gate log (24h): ${SCOPE_GATE_LOG_24H} evaluations
+
+## KnownSelf Freshness (mem:drift)
+- ${MEM_DRIFT_STATUS}
+- ${MEM_DRIFT_MSG}
 
 ---
 Generated: ${NOW} (bash, zero token cost)
