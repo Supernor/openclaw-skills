@@ -39,6 +39,25 @@ if [ ! -d "$REPO_PATH/.git" ]; then
   git clone https://github.com/Supernor/openclaw-config.git "$REPO_PATH" 2>/dev/null
 fi
 
+# === INTENT: flush any stranded local commits (e.g. ERRORS.md commits made by
+# log-event.sh whose push previously failed silently via `|| true`) so they can
+# never pile up unpushed again — this runs every night regardless of whether
+# THIS script's own .env.template changed ===
+cd "$REPO_PATH"
+git fetch origin main -q 2>/dev/null || true
+AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+if [ "$AHEAD" -gt 0 ]; then
+  if git push origin main -q 2>/tmp/env-backup-flush-err.$$; then
+    FLUSH="pushed ${AHEAD} pending commit(s)"
+  else
+    FLUSH_ERR=$(cat /tmp/env-backup-flush-err.$$ 2>/dev/null | tr '\n' ' ' | tr -d '"' | head -c 200)
+    FLUSH="push FAILED for ${AHEAD} pending commit(s): ${FLUSH_ERR}"
+  fi
+  rm -f /tmp/env-backup-flush-err.$$
+else
+  FLUSH="nothing pending"
+fi
+
 # Write template
 echo "$TEMPLATE" > "$REPO_PATH/.env.template"
 
@@ -46,13 +65,13 @@ echo "$TEMPLATE" > "$REPO_PATH/.env.template"
 cd "$REPO_PATH"
 git add .env.template
 if git diff --cached --quiet; then
-  echo '{"status":"PASS","message":"No changes","key_count":'"$KEY_COUNT"',"pushed":false}'
+  echo '{"status":"PASS","message":"No changes","key_count":'"$KEY_COUNT"',"pushed":false,"flush":"'"$FLUSH"'"}'
 else
   git commit -m "[env-backup] $(date -u +%Y-%m-%dT%H:%M:%SZ) update .env.template" -q
   if git push origin main -q 2>/dev/null; then
-    echo '{"status":"PASS","message":"Template updated and pushed","key_count":'"$KEY_COUNT"',"pushed":true,"sha":"'"$(git rev-parse --short HEAD)"'"}'
+    echo '{"status":"PASS","message":"Template updated and pushed","key_count":'"$KEY_COUNT"',"pushed":true,"sha":"'"$(git rev-parse --short HEAD)"'","flush":"'"$FLUSH"'"}'
   else
-    echo '{"status":"ERROR","message":"Commit succeeded but push failed","key_count":'"$KEY_COUNT"',"pushed":false}'
+    echo '{"status":"ERROR","message":"Commit succeeded but push failed","key_count":'"$KEY_COUNT"',"pushed":false,"flush":"'"$FLUSH"'"}'
     exit 1
   fi
 fi

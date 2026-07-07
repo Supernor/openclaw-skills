@@ -57,6 +57,9 @@ echo "[1/5] env-backup..."
 ENV_OUT=$(run_on_host "/home/node/.openclaw/scripts/env-backup.sh" || true)
 ENV_STATUS=$(echo "$ENV_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 ENV_PUSHED=$(echo "$ENV_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pushed','?'))" 2>/dev/null || echo "?")
+# === INTENT: surface env-backup.sh's unconditional stranded-commit flush
+# (openclaw-config repo) so it's visible in nightly suite output, not buried ===
+ENV_FLUSH=$(echo "$ENV_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('flush','?'))" 2>/dev/null || echo "?")
 
 if [ "$ENV_STATUS" = "FATAL" ]; then
     echo "FATAL: env-backup detected possible secret leak. Aborting entire suite."
@@ -64,8 +67,8 @@ if [ "$ENV_STATUS" = "FATAL" ]; then
     exit 2
 fi
 [ "$ENV_STATUS" != "PASS" ] && FAILURES=$((FAILURES+1))
-RESULTS="${RESULTS}env-backup: ${ENV_STATUS} (pushed=${ENV_PUSHED})\n"
-echo "  -> $ENV_STATUS (pushed=$ENV_PUSHED)"
+RESULTS="${RESULTS}env-backup: ${ENV_STATUS} (pushed=${ENV_PUSHED}, config-repo-flush=${ENV_FLUSH})\n"
+echo "  -> $ENV_STATUS (pushed=$ENV_PUSHED, config-repo-flush=$ENV_FLUSH)"
 
 # --- 2. skills-backup (push skills/hooks/scripts to openclaw-skills) ---
 echo "[2/5] skills-backup..."

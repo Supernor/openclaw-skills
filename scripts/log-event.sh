@@ -48,7 +48,25 @@ ENTRY
     # Push to GitHub
     cd "$(dirname "$ERRORS_MD")/.."
     git add logs/ERRORS.md
-    git diff --cached --quiet || git commit -q -m "[log] $LEVEL $SKILL $(date -u +%Y-%m-%d)" && git push -q origin main 2>/dev/null || true
+    # === INTENT: commit if there are staged changes, then push; report push
+    # failures loudly instead of swallowing them via `|| true` ===
+    if ! git diff --cached --quiet; then
+      if git commit -q -m "[log] $LEVEL $SKILL $(date -u +%Y-%m-%d)"; then
+        if ! git push -q origin main 2>/tmp/log-event-push-err.$$; then
+          echo "log-event.sh: git push origin main FAILED for openclaw-config (skill=$SKILL, level=$LEVEL)." >&2
+          echo "  HISTORY: pushes were silently swallowed by '|| true' since 2026-06-24, fixed 2026-07-07." >&2
+          echo "  WHAT HASN'T BEEN TRIED: check remote auth (git ls-remote), check for diverged branch (git pull --rebase)." >&2
+          echo "  WHAT WORKED BEFORE: none recorded yet for this exact failure — this is a new diagnostic path." >&2
+          echo "  Push stderr:" >&2
+          cat /tmp/log-event-push-err.$$ >&2
+          rm -f /tmp/log-event-push-err.$$
+        else
+          rm -f /tmp/log-event-push-err.$$
+        fi
+      else
+        echo "log-event.sh: git commit failed for openclaw-config ERRORS.md (skill=$SKILL, level=$LEVEL)." >&2
+      fi
+    fi
   fi
 fi
 
