@@ -68,12 +68,18 @@ import json, sys
 m = {
     'host_op': sys.argv[1],
     'agent': sys.argv[2],
-    'prompt': sys.argv[3][:1500] + (' Context: ' + sys.argv[4] if sys.argv[4] else ''),
+    # 12000 cap (was 1500): silent [:1500] amputated pushed-evidence prompts —
+    # judges saw half the receipts (scar #22 + failsafe beat 2026-07-08).
+    'prompt': sys.argv[3][:12000] + (' Context: ' + sys.argv[4] if sys.argv[4] else ''),
     'routing_mode': sys.argv[5],
     'telegram_chat_id': '8561305605',
 }
 if len(sys.argv) > 6 and sys.argv[6].strip().isdigit():
     m['timeout'] = int(sys.argv[6])
+if len(sys.argv[3]) > 12000:
+    # No silent caps, ever: the agent will NOT see the tail past 12000 chars.
+    sys.stderr.write('WARN workshop-submit: prompt truncated %d->12000 chars — '
+                     'shorten the prompt or split the task.\n' % len(sys.argv[3]))
 print(json.dumps(m))
 " "$HOST_OP" "$AGENT" "$TASK" "$CONTEXT" "$ROUTING_MODE" "$TIMEOUT_S")
 
