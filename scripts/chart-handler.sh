@@ -232,6 +232,22 @@ try {
 SCRIPT
 }
 
+_import_registry() {
+  local id="$1" text="$2" category="$3" importance="$4" _reg_rc
+  if python3 /home/node/.openclaw/scripts/mem-import-charts.py --one "$id" \
+    --text "$text" --category "$category" --importance "$importance"; then
+    _reg_rc=0
+  else
+    _reg_rc=$?
+  fi
+  if [ "$_reg_rc" -eq 2 ]; then
+    echo "WARN chart->registry write FAILED for '$id' (mem-import-charts exit 2)." >&2
+    echo "  The chart IS in LanceDB (vector tier) but NOT in the KnownSelf registry." >&2
+    printf "  Fix: python3 /home/node/.openclaw/scripts/mem-import-charts.py --one %q --text %q --category %q --importance %q\n" "$id" "$text" "$category" "$importance" >&2
+    echo "  The daily reconciler will also flag this id as new_unshimmed until repaired." >&2
+  fi
+}
+
 cmd_search() {
   local keywords="$*"
   if [ -z "$keywords" ]; then
@@ -344,6 +360,7 @@ cmd_add() {
 
   if output=$(_write_direct add "$id" "$safe_id" "$text" "$category" "$importance" 2>&1); then
     printf '%s\n' "$output"
+    _import_registry "$id" "$text" "$category" "$importance"
   else
     if echo "$output" | grep -q "already exists"; then
       printf '%s\n' "$output"
@@ -383,6 +400,7 @@ cmd_update() {
   if output=$(_write_direct update "$id" "$safe_id" "$text" "$category" "$importance" 2>&1); then
     printf '%s\n' "$output"
     echo "(updated with Verified: ${today})"
+    _import_registry "$id" "$text" "$category" "$importance"
   else
     _queue_entry update "$id" "$text" "$category" "$importance" "$output"
   fi
