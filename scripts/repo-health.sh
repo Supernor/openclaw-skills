@@ -48,22 +48,39 @@ for repo in "${REPOS[@]}"; do
 
   PUSHED_AT=$(echo "$REPO_DATA" | jq -r '.pushed_at // "unknown"')
   PRIVATE=$(echo "$REPO_DATA" | jq -r '.private')
+  DEFAULT_BRANCH=$(echo "$REPO_DATA" | jq -r '.default_branch // "main"')
 
-  if [ "$PUSHED_AT" != "unknown" ]; then
-    PUSH_EPOCH=$(date -d "$PUSHED_AT" +%s 2>/dev/null || echo 0)
-    AGE_SECONDS=$((NOW - PUSH_EPOCH))
-    AGE_DAYS=$((AGE_SECONDS / 86400))
-    STALE=$( [ $AGE_SECONDS -gt $STALE_SECONDS ] && echo true || echo false )
+  # === INTENT: freshness must reflect the DEFAULT BRANCH's real HEAD date, not
+  # repo-level pushed_at — pushed_at bumps on ANY ref push (incl. config-tag.sh
+  # tag pushes), masking a stale main. Query the branch HEAD committer date; on
+  # gh API error fall back to pushed_at and fail TOWARD stale (WARN) rather than a
+  # false-fresh PASS. Scar scripts-repo-health-sh-134, discovered 2026-07-10. ===
+  FRESH_SRC="branch:$DEFAULT_BRANCH"
+  BRANCH_DATE=$(gh api "repos/Supernor/$repo/commits/$DEFAULT_BRANCH" --jq '.commit.committer.date' 2>/dev/null || echo "")
+  if [ -z "$BRANCH_DATE" ]; then
+    FRESH_SRC="pushed_at(fallback)"
+    BRANCH_DATE="$PUSHED_AT"
+  fi
+
+  if [ "$BRANCH_DATE" != "unknown" ] && [ -n "$BRANCH_DATE" ]; then
+    HEAD_EPOCH=$(date -d "$BRANCH_DATE" +%s 2>/dev/null || echo 0)
+    if [ "$HEAD_EPOCH" -eq 0 ]; then
+      AGE_DAYS=-1; STALE=true   # unparseable date → fail toward WARN
+    else
+      AGE_SECONDS=$((NOW - HEAD_EPOCH))
+      AGE_DAYS=$((AGE_SECONDS / 86400))
+      STALE=$( [ $AGE_SECONDS -gt $STALE_SECONDS ] && echo true || echo false )
+    fi
   else
     AGE_DAYS=-1
     STALE=true
   fi
 
   if $STALE; then
-    add_warning "repo '$repo' is STALE — last push ${AGE_DAYS}d ago (> ${STALE_DAYS}d threshold). The nightly backup for it may be failing; check the matching *-backup.sh and 'gh auth status'."
+    add_warning "repo '$repo' is STALE — default branch '$DEFAULT_BRANCH' HEAD is ${AGE_DAYS}d old (> ${STALE_DAYS}d threshold, source=$FRESH_SRC). The nightly backup for it may be failing OR nothing new has been committed; check the matching *-backup.sh, 'gh auth status', and whether real content changed."
   fi
 
-  RESULTS+='{"repo":"'"$repo"'","reachable":true,"private":'"$PRIVATE"',"pushed_at":"'"$PUSHED_AT"'","age_days":'"$AGE_DAYS"',"stale":'"$STALE"'}'
+  RESULTS+='{"repo":"'"$repo"'","reachable":true,"private":'"$PRIVATE"',"default_branch":"'"$DEFAULT_BRANCH"'","pushed_at":"'"$PUSHED_AT"'","branch_head_date":"'"$BRANCH_DATE"'","freshness_source":"'"$FRESH_SRC"'","age_days":'"$AGE_DAYS"',"stale":'"$STALE"'}'
 done
 RESULTS+="]"
 
