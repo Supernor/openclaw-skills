@@ -4,6 +4,11 @@
 # The registry/memory (ops.db) is the irreplaceable part; code is also in git.
 set -uo pipefail
 
+# === INTENT: staging snapshot (ops.db.snapshot) must be root-only — it lands on the ===
+# === bind mount readable by uid-1000 container agents. Added 2026-07-13 per silo ===
+# === phase-2 G0. restic repo is separately encrypted (see restic backup below). ===
+umask 077
+
 # WHY each piece:
 # - creds/password live OUTSIDE git (.r2.env / .restic-password, mode 600)
 # - live SQLite (WAL) must never be raw-copied -> consistent .backup snapshot

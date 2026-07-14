@@ -4,6 +4,11 @@
 # Intent: Recoverable [I09]. Created: 2026-03-09.
 set -eo pipefail
 
+# === INTENT: backup artifacts must be root-only (uid-1000 container agents share the ===
+# === bind mount and could otherwise read 7 days of ops.db copies). Added 2026-07-13 ===
+# === per silo phase-2 G0. Pairs with chmod 700 on backups/ + dated subdirs. ===
+umask 077
+
 BASE="/root/.openclaw"
 BACKUP_ROOT="${BASE}/backups"
 TODAY=$(date -u +%Y-%m-%d)
