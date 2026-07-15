@@ -99,6 +99,31 @@ except Exception:
 MEM_DRIFT_STATUS=$(printf '%s\n' "$MEM_DRIFT" | head -1)
 MEM_DRIFT_MSG=$(printf '%s\n' "$MEM_DRIFT" | tail -1)
 
+# Git hygiene sensor (mem:git-hygiene) — rides the same 4h sitrep beat as
+# mem:drift above. Origin: 2026-07-14, two scripts already committed INTO the
+# KnownSelf registry sat uncommitted in git for hours; Robert caught it by
+# hand. This makes that catch mechanical: flags every file KnownSelf
+# references (mem_nodes file title / file_scars.path) that is untracked or
+# has uncommitted changes in its owning repo (/root/.openclaw or
+# /root/.openclaw/workspace). Report-only — its only write is the one
+# mem:git-hygiene row in signal_status (Bridge host-signals grid / MOTD read
+# it same as mem:drift). It is a SCRIPT, not a DB trigger, because git state
+# lives outside ops.db entirely. Exits 0 even when files are flagged (only
+# the signal carries state), so `set -uo pipefail` will not abort the sitrep
+# run on a dirty tree. No new cron.
+MEM_GIT_HYGIENE=$(python3 /root/.openclaw/scripts/mem-git-hygiene-check.py --json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d['status'].upper()+'/'+d['severity']+' | '+d['value'])
+    print(d['message'])
+except Exception:
+    print('unavailable')
+    print('mem-git-hygiene-check produced no report (ops.db unreadable or git error)')
+" 2>/dev/null) || MEM_GIT_HYGIENE=$'unavailable\nmem-git-hygiene-check failed to run'
+MEM_GIT_HYGIENE_STATUS=$(printf '%s\n' "$MEM_GIT_HYGIENE" | head -1)
+MEM_GIT_HYGIENE_MSG=$(printf '%s\n' "$MEM_GIT_HYGIENE" | tail -1)
+
 # --- Build sitrep ---
 
 cat > "$SITREP_FILE" << EOF
@@ -129,6 +154,10 @@ ${SAT_SUMMARY}
 ## KnownSelf Freshness (mem:drift)
 - ${MEM_DRIFT_STATUS}
 - ${MEM_DRIFT_MSG}
+
+## Git Hygiene (mem:git-hygiene)
+- ${MEM_GIT_HYGIENE_STATUS}
+- ${MEM_GIT_HYGIENE_MSG}
 
 ---
 Generated: ${NOW} (bash, zero token cost)
