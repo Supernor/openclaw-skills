@@ -92,7 +92,10 @@ send_notification "Codex auth expired. Starting reauth — watch for the link...
 
 # Run device auth and capture output
 TEMP=$(mktemp)
-timeout 120 codex login --device-auth > "$TEMP" 2>&1 &
+# 900s not 120s: the login process must stay alive polling until the user finishes on their
+# phone — killing it invalidates the code server-side ("couldn't authorize this device").
+# 900s matches the code's own 15-minute expiry.
+timeout 900 codex login --device-auth > "$TEMP" 2>&1 &
 AUTH_PID=$!
 
 # Wait for URL to appear in output (up to 15 seconds)
@@ -101,8 +104,16 @@ CODE=""
 for i in $(seq 1 30); do
     sleep 0.5
     if [ -f "$TEMP" ]; then
-        URL=$(grep -oP 'https://[^\s]+' "$TEMP" | head -1)
-        CODE=$(grep -oP 'code[:\s]+([A-Z0-9-]+)' "$TEMP" | head -1 | grep -oP '[A-Z0-9-]+$')
+        # Codex CLI >=0.144 prints the code on its OWN line under "Enter this one-time code";
+        # old "code: XXXX" same-line format kept as fallback. ANSI codes stripped first.
+        # || true on every capture: under set -e, a no-match grep exit(1) inside $() KILLS the
+        # script silently — this was the original silent-death bug, not just the regex.
+        CLEAN=$(sed 's/\x1b\[[0-9;]*m//g' "$TEMP" || true)
+        URL=$(echo "$CLEAN" | grep -oP 'https://[^\s]+' | head -1 || true)
+        CODE=$(echo "$CLEAN" | grep -oP '^\s*[A-Z0-9]{4,6}-[A-Z0-9]{4,6}\s*$' | tr -d '[:space:]' | head -1 || true)
+        if [ -z "$CODE" ]; then
+            CODE=$(echo "$CLEAN" | grep -oP 'code[:\s]+([A-Z0-9-]+)' | head -1 | grep -oP '[A-Z0-9-]+$' || true)
+        fi
         if [ -n "$URL" ]; then
             break
         fi
@@ -110,8 +121,9 @@ for i in $(seq 1 30); do
 done
 
 if [ -z "$URL" ]; then
-    log "ERROR: Could not extract auth URL from codex login output"
-    send_notification "Codex reauth failed — couldn't get auth URL. Try manually: \`codex login\`"
+    LOGIN_ERR=$(tail -3 "$TEMP" 2>/dev/null | tr '\n' ' ' || true)
+    log "ERROR: Could not extract auth URL. codex login said: ${LOGIN_ERR:-<no output>}"
+    send_notification "Codex reauth failed — couldn't get auth URL. codex login said: ${LOGIN_ERR:-<no output>}. (429 = rate-limited, wait ~15 min. Otherwise try manually: \`codex login\`)"
     kill $AUTH_PID 2>/dev/null
     rm -f "$TEMP"
     exit 1
@@ -145,11 +157,26 @@ rm -f "$TEMP"
 if [ $AUTH_EXIT -eq 0 ]; then
     log "Device auth completed successfully"
 
-    # Step 5: Sync to gateway
-    log "Syncing tokens to gateway..."
+    # Step 5: Sync to gateway — full wiring per scar gateway-auth-wrong-door-20260720:
+    # (a) gpt-5.5 runs via the codex-app-server plugin; per-agent codex-home/auth.json must match.
+    # (b) paste into BOTH openai profiles (auth.order tries pool-b first).
+    # (c) the runtime only loads auth profiles at BOOT — restart is REQUIRED, paste alone does nothing.
+    log "Distributing auth.json to agent codex-homes..."
+    for agent in relay eoin main; do
+        AH="/root/.openclaw/agents/$agent/agent/codex-home/auth.json"
+        cp /root/.codex/auth.json "$AH" && chown 1000:1000 "$AH" && chmod 600 "$AH" \
+            && log "  codex-home synced: $agent" || log "  codex-home sync FAILED: $agent"
+    done
+    log "Pasting token into gateway auth profiles (default + pool-b)..."
+    /root/.openclaw/scripts/sync-openai-token.sh >/dev/null 2>&1 || true
+    env OPENAI_SYNC_HOST_AUTH=/root/.codex/auth.json OPENAI_SYNC_PROFILE=openai:pool-b \
+        /root/.openclaw/scripts/sync-openai-token.sh >/dev/null 2>&1 || true
     /root/.openclaw/scripts/sync-codex-auth.sh 2>/dev/null || true
+    log "Restarting gateway (auth profiles load at boot only)..."
+    docker compose -f /root/openclaw/docker-compose.yml restart openclaw-gateway >/dev/null 2>&1 \
+        && log "Gateway restarted" || log "Gateway restart FAILED — check docker"
 
-    send_notification "Codex reauth complete. Tokens synced. Gateway restarted. You are good to go."
+    send_notification "Codex reauth complete. Tokens synced to host + 3 agent codex-homes + both gateway profiles; gateway restarted. Verify: ask Relay which model it is on."
     log "Reauth flow complete"
     exit 0
 else
