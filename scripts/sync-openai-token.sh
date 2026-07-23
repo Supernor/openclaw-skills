@@ -61,5 +61,18 @@ for agent in $AGENTS; do
         log "  ✗ $agent (paste failed)"; fail=$((fail+1))
     fi
 done
-log "Done: $ok ok, $fail failed. (No gateway restart needed.)"
+log "Done: $ok ok, $fail failed."
+# Restart REQUIRED after paste: the gateway loads auth profiles at BOOT ONLY (scar
+# gateway-auth-wrong-door-20260720). Without this, pastes land in a store the running
+# process never rereads, and host-side token rotation invalidates its boot snapshot —
+# exactly the silent 4-day outage of Jul 16-20 and the relapse of Jul 22.
+# Skippable for callers that batch multiple syncs then restart once: OPENAI_SYNC_NO_RESTART=1.
+if [ "$ok" -gt 0 ] && [ -z "${OPENAI_SYNC_NO_RESTART:-}" ]; then
+    log "Restarting gateway to load pasted tokens (boot-only auth load)..."
+    if docker compose -f /root/openclaw/docker-compose.yml restart openclaw-gateway >/dev/null 2>&1; then
+        log "Gateway restarted."
+    else
+        log "Gateway restart FAILED — pasted tokens will NOT be live until a restart happens. Check docker."
+    fi
+fi
 [ "$fail" -eq 0 ]

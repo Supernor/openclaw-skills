@@ -168,8 +168,8 @@ if [ $AUTH_EXIT -eq 0 ]; then
             && log "  codex-home synced: $agent" || log "  codex-home sync FAILED: $agent"
     done
     log "Pasting token into gateway auth profiles (default + pool-b)..."
-    /root/.openclaw/scripts/sync-openai-token.sh >/dev/null 2>&1 || true
-    env OPENAI_SYNC_HOST_AUTH=/root/.codex/auth.json OPENAI_SYNC_PROFILE=openai:pool-b \
+    env OPENAI_SYNC_NO_RESTART=1 /root/.openclaw/scripts/sync-openai-token.sh >/dev/null 2>&1 || true
+    env OPENAI_SYNC_NO_RESTART=1 OPENAI_SYNC_HOST_AUTH=/root/.codex/auth.json OPENAI_SYNC_PROFILE=openai:pool-b \
         /root/.openclaw/scripts/sync-openai-token.sh >/dev/null 2>&1 || true
     /root/.openclaw/scripts/sync-codex-auth.sh 2>/dev/null || true
     log "Restarting gateway (auth profiles load at boot only)..."
