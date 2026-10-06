@@ -63,7 +63,10 @@ check() {
             echo "    VERIFY: bridge-audit.sh --section ${section}"
         fi
     fi
-    RESULTS="${RESULTS}{\"section\":\"${section}\",\"point\":\"${point}\",\"result\":\"${result}\",\"detail\":\"${detail}\"},"
+    # JSON-escape detail (backslash first, then double quote) — unescaped quotes made --json invalid (2026-10-05)
+    local jdetail="${detail//\\/\\\\}"
+    jdetail="${jdetail//\"/\\\"}"
+    RESULTS="${RESULTS}{\"section\":\"${section}\",\"point\":\"${point}\",\"result\":\"${result}\",\"detail\":\"${jdetail}\"},"
 }
 
 audit_section() {

@@ -17,11 +17,13 @@ MODE="code"
 TIMEOUT=""
 TASK_ID=""
 CWD=""
+NEEDS=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --timeout) TIMEOUT="$2"; shift 2 ;;
     --dir) CWD="$2"; shift 2 ;;
+    --needs) NEEDS="$2"; shift 2 ;;
     --task-id) TASK_ID="$2"; shift 2 ;;
     --no-failover) shift ;;      # Drop: engine.py handles failover internally
     --full-auto) shift ;;        # Drop: engine.py always uses bypass-approvals
@@ -49,5 +51,6 @@ CMD=(python3 /root/.openclaw/scripts/engine.py "$MODE" "$PROMPT")
 [ -n "$TIMEOUT" ] && CMD+=(--timeout "$TIMEOUT")
 [ -n "$TASK_ID" ] && CMD+=(--task-id "$TASK_ID")
 [ -n "$CWD" ] && CMD+=(--cwd "$CWD")
+[ -n "$NEEDS" ] && CMD+=(--needs "$NEEDS")
 
 exec "${CMD[@]}"

@@ -48,8 +48,14 @@ PY
 telegram_alert() {
   local text token chat
   text=$(printf '%s' "$1" | tr '\r\n"' '   ')
+  # .env never had plain TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — alert path was dead
+  # since birth ("alert skipped: no telegram creds" nightly). Robert's real vars +
+  # known-good chat id fallback (2026-10-05).
   token=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
+  [ -n "${token:-}" ] || token=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
+  [ -n "${token:-}" ] || token=$(grep '^TAP_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
   chat=$(grep '^TELEGRAM_CHAT_ID=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
+  [ -n "${chat:-}" ] || chat="8561305605"
   [ -n "${token:-}" ] && [ -n "${chat:-}" ] || { log "alert skipped: no telegram creds"; return 0; }
   printf 'url = "https://api.telegram.org/bot%s/sendMessage"\ndata-urlencode = "chat_id=%s"\ndata-urlencode = "text=%s"\n' \
     "$token" "$chat" "$text" | curl -sS --max-time 20 -K - >/dev/null 2>&1 || true
@@ -84,7 +90,17 @@ restic backup /root/.openclaw \
   --exclude "${OPS_DB}-wal" \
   --exclude "${OPS_DB}-shm" \
   --exclude "/root/.openclaw/backups/r2-staging" \
-  >> "$LOG" 2>&1 || fail "restic backup"
+  >> "$LOG" 2>&1
+rc=$?
+# restic exit 3 = snapshot CREATED but some files unreadable (normal at 03:30 —
+# other crons hold wal/lock files). Treating 3 as fatal inverted the honest
+# signal for weeks: real snapshots reported as FAIL (fixed 2026-10-05).
+if [ "$rc" -eq 3 ]; then
+  log "WARN: restic exit 3 — snapshot created, some files unreadable (see log). Counting as OK-with-warning."
+  telegram_alert "r2-backup WARNING: snapshot created but some files were unreadable (restic exit 3). Backup is usable; check log if this repeats."
+elif [ "$rc" -ne 0 ]; then
+  fail "restic backup (exit $rc)"
+fi
 # NOTE: live ops.db is EXCLUDED on purpose — $STAGING/ops.db.snapshot (included
 # via /root/.openclaw/backups) is the consistent copy a restore should use.
 restic backup "$STAGING/ops.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup of ops.db snapshot"

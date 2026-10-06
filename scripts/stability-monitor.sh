@@ -30,8 +30,32 @@ DISCORD_OPS_ALERTS="1477754571697688627"
 CONTAINER="openclaw-openclaw-gateway-1"
 HEALTH_PROBE_ATTEMPTS=3
 HEALTH_PROBE_DELAY_SECONDS=2
+SYSTEMD_RESTART_LOOP_GUARD="/root/.openclaw/scripts/systemd-restart-loop-guard.py"
+BRIDGE_RESTART_ALERT_DELTA=10
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG"; }
+
+mission_now() {
+  local TEXT="$1"
+  python3 - "$TEXT" <<'PY' >/dev/null 2>&1 || true
+import datetime, json, os, sys
+path = "/root/.openclaw/mission-now-activity.jsonl"
+text = sys.argv[1]
+os.makedirs(os.path.dirname(path), exist_ok=True)
+row = {
+    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "text": text[:320],
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+}
+
+start_detached() {
+  local LOG_NAME="$1"
+  shift
+  (cd /root/.openclaw/scripts && setsid "$@" >> "/root/.openclaw/logs/${LOG_NAME}.log" 2>&1 < /dev/null &)
+}
 
 sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
@@ -89,6 +113,43 @@ telegram_direct() {
     -d chat_id="${TELEGRAM_TARGET}" \
     -d text="${MSG}" \
     -d parse_mode=Markdown >/dev/null 2>&1
+}
+
+# Bridge single-owner enforcement: /root/bridge-dev/dashboard-api.py must be
+# owned by openclaw-bridge-dev.service only. Leave rollback/Corinne Bridge
+# processes alone; they use different paths and units.
+enforce_bridge_dev_single_owner() {
+  local OWNER_PID PIDS PID CMD KILLED STILL_ALIVE
+  OWNER_PID=$(systemctl show openclaw-bridge-dev.service -p MainPID --value 2>/dev/null || echo 0)
+  [ -z "$OWNER_PID" ] && OWNER_PID=0
+  PIDS=$(pgrep -f "/root/bridge-dev/dashboard-api.py" 2>/dev/null || true)
+  [ -n "$PIDS" ] || return 0
+
+  KILLED=""
+  for PID in $PIDS; do
+    [ "$PID" = "$OWNER_PID" ] && continue
+    [ -r "/proc/$PID/cmdline" ] || continue
+    CMD=$(tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null || true)
+    case "$CMD" in
+      *"/root/bridge-dev/dashboard-api.py"*) ;;
+      *) continue ;;
+    esac
+    log "SINGLE-OWNER: stopping non-systemd Bridge dev process PID=$PID cmd=${CMD}"
+    kill "$PID" 2>/dev/null || true
+    sleep 1
+    STILL_ALIVE=0
+    kill -0 "$PID" 2>/dev/null && STILL_ALIVE=1
+    if [ "$STILL_ALIVE" = "1" ]; then
+      log "SINGLE-OWNER: force-killing non-systemd Bridge dev process PID=$PID"
+      kill -9 "$PID" 2>/dev/null || true
+    fi
+    KILLED="${KILLED}${PID} "
+  done
+
+  if [ -n "$KILLED" ]; then
+    mission_now "stability-monitor: stopped non-systemd bridge-dev dashboard-api.py PID(s): ${KILLED}"
+    RECOVERED="${RECOVERED}Stopped non-systemd Bridge dev process(es): ${KILLED}. "
+  fi
 }
 
 # probe_gateway_health — Runs `openclaw health` up to HEALTH_PROBE_ATTEMPTS times.
@@ -159,6 +220,8 @@ probe_gateway_health() {
 }
 
 CHECK_ERRORS=0
+RESTART_COUNT=0
+BRIDGE_RESTART_COUNT=0
 
 # Initialize state file if missing
 if [ ! -f "$STATE_FILE" ]; then
@@ -344,6 +407,23 @@ conn.close()
   fi
 fi
 
+# Check 4b: systemd restart-loop guard for all services.
+# Detects NRestarts deltas over a 15-minute window, alerts via direct Telegram,
+# and stops units after a higher threshold so crash loops cannot flood syslog.
+if [ -x "$SYSTEMD_RESTART_LOOP_GUARD" ]; then
+  SYSTEMD_LOOP_OUT=$("$SYSTEMD_RESTART_LOOP_GUARD" 2>&1)
+  SYSTEMD_LOOP_RC=$?
+  if [ "$SYSTEMD_LOOP_RC" -ne 0 ]; then
+    CHECK_ERRORS=$((CHECK_ERRORS+1))
+    log "CHECK FAILED: systemd restart-loop guard rc=$SYSTEMD_LOOP_RC output=${SYSTEMD_LOOP_OUT}"
+  elif [ -n "$SYSTEMD_LOOP_OUT" ]; then
+    log "SYSTEMD LOOP GUARD: ${SYSTEMD_LOOP_OUT}"
+  fi
+else
+  CHECK_ERRORS=$((CHECK_ERRORS+1))
+  log "CHECK FAILED: systemd restart-loop guard missing or not executable"
+fi
+
 # Check 5: Memory pressure — detect AND remediate
 PRESSURE_FLAG="/root/.openclaw/pressure-mode"
 RELIEF_SCRIPT="/root/.openclaw/scripts/pressure-relief.sh"
@@ -469,7 +549,7 @@ if [ "$TAP_RUNNING" = "no" ]; then
   TAP_RUNNING=$(ps aux | grep "[p]ython3 tap-daemon.py" | grep -v grep | wc -l)
   if [ "$TAP_RUNNING" = "0" ]; then
     log "ALERT: Tap daemon is DOWN — auto-restarting"
-    cd /root/.openclaw/scripts && nohup python3 tap-daemon.py >> /root/.openclaw/logs/tap-daemon.log 2>&1 &
+    start_detached "tap-daemon" python3 tap-daemon.py
     sleep 2
     if pgrep -f "tap-daemon.py" >/dev/null 2>&1; then
       RECOVERED="${RECOVERED}Tap daemon auto-restarted. "
@@ -501,7 +581,7 @@ fi
 # Check 10: backbone-listener
 if ! ps aux | grep "[b]ackbone-listener.py" | grep -qv grep; then
   log "ALERT: backbone-listener is DOWN — auto-restarting"
-  cd /root/.openclaw/scripts && nohup python3 backbone-listener.py >> /root/.openclaw/logs/backbone-listener.log 2>&1 &
+  start_detached "backbone-listener" python3 backbone-listener.py
   sleep 2
   if ps aux | grep "[b]ackbone-listener.py" | grep -qv grep >/dev/null; then
     RECOVERED="${RECOVERED}backbone-listener auto-restarted. "
@@ -532,16 +612,39 @@ if ! ps aux | grep "[t]elegram-listener.py" | grep -qv grep; then
   log "ALERT: telegram-listener down"
 fi
 
+# Check 12b: Bridge dev single-owner rule
+enforce_bridge_dev_single_owner
+
 # Check 13: Bridge dashboards
 # Bridge runs as openclaw-bridge-dev (ports 8082+8083+8084 via BRIDGE_PORTS env)
 # NEVER use openclaw-bridge.service (old, single-port — disabled 2026-04-22 after overnight crash-loop)
 # Why: two services fighting for port 8082 caused all-night crash-loop + Relay spam
+BRIDGE_RESTART_COUNT=0
 for SVC in openclaw-bridge-dev; do
-  if ! systemctl is-active --quiet "$SVC" 2>/dev/null; then
-    # Try auto-fix: kill any stale python dashboard-api.py holding ports, then restart
-    STALE_PIDS=$(fuser 8082/tcp 2>/dev/null | tr -s ' ')
+  BRIDGE_ACTIVE="yes"
+  systemctl is-active --quiet "$SVC" 2>/dev/null || BRIDGE_ACTIVE="no"
+  BRIDGE_RESTART_COUNT=$(systemctl show "$SVC" -p NRestarts --value 2>/dev/null || echo 0)
+  BRIDGE_RESTART_COUNT=${BRIDGE_RESTART_COUNT:-0}
+  PREV_BRIDGE_RESTARTS=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('bridge_restart_count',0))" 2>/dev/null) || PREV_BRIDGE_RESTARTS=0
+  BRIDGE_NEW_RESTARTS=$((BRIDGE_RESTART_COUNT - PREV_BRIDGE_RESTARTS))
+  [ "$BRIDGE_NEW_RESTARTS" -lt 0 ] && BRIDGE_NEW_RESTARTS=0
+
+  if [ "$BRIDGE_ACTIVE" = "no" ] || [ "$BRIDGE_NEW_RESTARTS" -gt "$BRIDGE_RESTART_ALERT_DELTA" ]; then
+    if [ "$BRIDGE_ACTIVE" = "no" ]; then
+      BRIDGE_REASON="${SVC} inactive"
+    else
+      BRIDGE_REASON="${SVC} restart-loop delta ${BRIDGE_NEW_RESTARTS}"
+    fi
+    log "ALERT: Bridge heal triggered (${BRIDGE_REASON}; total restarts=${BRIDGE_RESTART_COUNT})"
+    mission_now "stability-monitor: Bridge heal triggered (${BRIDGE_REASON})"
+
+    # Try auto-fix: stop the systemd-owned Bridge, kill stale dashboard-api.py
+    # port holders across all Bridge ports, then restart the systemd owner.
+    systemctl stop "$SVC" 2>/dev/null || true
+    sleep 1
+    STALE_PIDS=$(fuser 8082/tcp 8083/tcp 8084/tcp 2>/dev/null | tr -s ' ')
     if [ -n "$STALE_PIDS" ]; then
-      log "Bridge port 8082 held by stale PID(s): $STALE_PIDS — killing before restart"
+      log "Bridge ports held by stale PID(s): $STALE_PIDS — killing before restart"
       kill -9 $STALE_PIDS 2>/dev/null
       sleep 2
     fi
@@ -550,11 +653,13 @@ for SVC in openclaw-bridge-dev; do
     systemctl restart "$SVC" 2>/dev/null
     sleep 3
     if systemctl is-active --quiet "$SVC" 2>/dev/null; then
-      RECOVERED="${RECOVERED}Bridge auto-recovered (killed stale port holder + restarted). "
-      log "RECOVERY: Bridge auto-recovered"
+      RECOVERED="${RECOVERED}Bridge auto-recovered (${BRIDGE_REASON}; stale ports cleared + systemd restart). "
+      log "RECOVERY: Bridge auto-recovered (${BRIDGE_REASON})"
+      mission_now "stability-monitor: Bridge auto-recovered (${BRIDGE_REASON})"
     else
       ALERTS="${ALERTS}${SVC} is DOWN (auto-restart failed). "
       log "ALERT: ${SVC} down — auto-restart failed"
+      mission_now "stability-monitor: Bridge auto-restart failed (${BRIDGE_REASON})"
     fi
   fi
 done
@@ -602,7 +707,7 @@ if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1"
 
   # 2. Restart tap daemon if down
   if ! pgrep -f "tap-daemon.py" >/dev/null 2>&1; then
-    cd /root/.openclaw/scripts && nohup python3 tap-daemon.py >> /root/.openclaw/logs/tap-daemon.log 2>&1 &
+    start_detached "tap-daemon" python3 tap-daemon.py
     log "RECOVERY: Restarted tap daemon"
   fi
 
@@ -646,7 +751,8 @@ state = {
     'rate_limited': True if '$RATE_LIMITED' == 'true' else False,
     'last_check': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
     'consecutive_failures': $FAILURES,
-    'restart_count': $RESTART_COUNT
+    'restart_count': $RESTART_COUNT,
+    'bridge_restart_count': $BRIDGE_RESTART_COUNT
 }
 if '$ALERTS':
     state['last_alert'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
