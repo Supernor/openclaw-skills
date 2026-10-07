@@ -17,3 +17,6 @@ echo "== seat =="
 python3 -c "import json;d=json.load(open('/tmp/claude-seat.json'));print('five_pct_band='+str(d['five_pct']//10*10),'week_pct_band='+str(d['week_pct']//10*10),'fleet='+str(d['fleet']),'health_worst='+str(d['health_worst']))" 2>/dev/null
 echo "== services =="
 for s in openclaw-host-ops openclaw-bridge-dev; do printf '%s=%s\n' "$s" "$(systemctl is-active $s 2>/dev/null)"; done
+echo "== backbone =="
+sqlite3 /root/.openclaw/ops.db "SELECT 'messages='||COUNT(*) FROM bb_messages; SELECT 'proposals='||COUNT(*) FROM bb_proposals; SELECT 'decisions='||COUNT(*) FROM bb_proposal_decisions;" 2>/dev/null
+python3 -c "import json;d=json.load(open('/srv/knownself-public/runtime/backbone-switch.json'));print('switch='+str(d.get('enabled')))" 2>/dev/null

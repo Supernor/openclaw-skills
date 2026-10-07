@@ -10,7 +10,9 @@
 #   daily-diary.sh --dry-run 2026-05-26  # print that day's prompt
 #
 # Architecture (rewritten 2026-05-28, see chart procedure-daily-diary-pipeline-20260528):
-#   Primary  : host claude CLI invoked DIRECTLY (Max plan OAuth, flat-rate).
+#   [2026-10-06] Primary now = engine.py quick (free Gemini, paid failover); `claude -p` REMOVED (seat ToS). Full text
+#   is persisted (diary/ + ops.db journal_entries) BEFORE posting; Discord split is lossless (daily-diary-lib.py).
+#   (historical note follows) Primary was: host claude CLI invoked DIRECTLY (Max plan OAuth, flat-rate).
 #              Bypasses claude-code-run host_op because that handler forces
 #              metered ANTHROPIC_API_KEY (zero credit balance). See chart
 #              issue-claude-code-run-handler-blocks-seat-auth-20260528.
@@ -134,10 +136,10 @@ validate_diary() {
 
 # --- Preflight ---
 command -v "$OC" >/dev/null 2>&1 || die "oc CLI not found at $OC"
-command -v claude >/dev/null 2>&1 || die "claude CLI not found (host Max plan)"
+[ -f /root/.openclaw/scripts/engine.py ] || die "engine.py not found (free-Gemini quick() path; replaces claude -p, seat-ToS 2026-10-06)"
+[ -f /root/.openclaw/scripts/daily-diary-lib.py ] || die "daily-diary-lib.py missing (lossless persist+split)"
 command -v jq >/dev/null 2>&1 || die "jq not found"
 [ -n "$DISCORD_TOKEN" ] || die "OPENCLAW_PROD_DISCORD_TOKEN missing from $COMPOSE_DIR/.env"
-[ -f /root/.claude/.credentials.json ] || log "WARNING: /root/.claude/.credentials.json missing — claude CLI may fall back to API key"
 
 # Gateway is only required for the Historian FALLBACK. Primary works without it.
 GATEWAY_UP=false
@@ -221,7 +223,7 @@ ${CONTEXT}
 # --- Dry-run early exit ---
 if [ "$DRY_RUN" = true ]; then
   echo "=== DRY RUN for $DATE (backfill=$IS_BACKFILL) ==="
-  echo "Primary  : claude CLI (Max plan OAuth, flat-rate)"
+  echo "Primary  : engine.py quick (free Gemini Flash, native paid-key failover) — NOT claude -p"
   echo "Fallback : oc agent --agent $AGENT (gateway up=$GATEWAY_UP)"
   echo "Discord  : channel $DISCORD_CHANNEL_ID via OPENCLAW_PROD_DISCORD_TOKEN"
   echo "Timeout  : ${TIMEOUT}s"
@@ -234,9 +236,16 @@ fi
 # --- Discord direct-post: single message (host-side, no gateway dependency) ---
 discord_post_one() {
   local content="$1"
-  # Discord enforces 2000-char content limit per message; truncate if needed
-  if [ ${#content} -gt 1980 ]; then
-    content="${content:0:1975}… [truncated]"
+  # Discord 2000-char limit: chunks arrive pre-split (daily-diary-lib.py split, <=1900).
+  # NEVER truncate (data loss, 2026-10-06 fix). Refuse an oversize chunk instead; full text is already persisted.
+  if [ ${#content} -gt 2000 ]; then
+    log "REFUSE oversize chunk (${#content} chars) — not truncating; full diary is persisted"
+    return 1
+  fi
+  if [ "${DIARY_NO_POST:-0}" = "1" ]; then
+    log "DIARY_NO_POST: would post chunk (${#content} chars)"
+    printf '=== CHUNK (%s chars) ===\n%s\n' "${#content}" "$content"
+    return 0
   fi
   local payload
   payload=$(jq -n --arg c "$content" '{content: $c}')
@@ -267,24 +276,18 @@ discord_post() {
   # Normalize: strip any stray code fences claude might add around the diary
   content=$(printf '%s' "$content" | sed -E 's/^[[:space:]]*```[a-zA-Z]*[[:space:]]*$//' | sed -E 's/^[[:space:]]*```[[:space:]]*$//')
 
-  local part1 part2
-  if [[ "$content" == *"$marker"* ]]; then
-    part1="${content%%$marker*}"
-    part2="${content#*$marker}"
-    # Trim leading/trailing blank lines from each chunk
-    part1=$(printf '%s' "$part1" | awk 'NF{p=1} p' | awk 'BEGIN{n=0} {a[n++]=$0} END{for(i=n-1;i>=0;i--) if(a[i]!="") {last=i; break} for(i=0;i<=last;i++) print a[i]}')
-    part2=$(printf '%s' "$part2" | awk 'NF{p=1} p' | awk 'BEGIN{n=0} {a[n++]=$0} END{for(i=n-1;i>=0;i--) if(a[i]!="") {last=i; break} for(i=0;i<=last;i++) print a[i]}')
-  else
-    part1="$content"
-    part2=""
-  fi
-
-  discord_post_one "$part1" || return 1
-  if [ -n "$part2" ]; then
-    # Tiny pause so Discord preserves order in fast back-to-back posts
-    sleep 1
-    discord_post_one "$part2" || return 1
-  fi
+  # Lossless split at meaning boundaries (marker, paragraph, line, sentence) — see daily-diary-lib.py
+  local chunks_file="/tmp/diary-chunks-$$.json" n i chunk
+  printf '%s' "$content" > "/tmp/diary-content-$$.txt"
+  python3 /root/.openclaw/scripts/daily-diary-lib.py split "/tmp/diary-content-$$.txt" > "$chunks_file" || { log "split failed"; return 1; }
+  n=$(jq 'length' "$chunks_file")
+  log "Diary split into $n chunk(s)"
+  for ((i=0; i<n; i++)); do
+    chunk=$(jq -r ".[$i]" "$chunks_file")
+    [ $i -gt 0 ] && sleep 1
+    discord_post_one "$chunk" || { rm -f "$chunks_file" "/tmp/diary-content-$$.txt"; return 1; }
+  done
+  rm -f "$chunks_file" "/tmp/diary-content-$$.txt"
   return 0
 }
 
@@ -326,17 +329,18 @@ If any step fails, still complete the remaining steps and note what failed."
 }
 
 # --- Primary path: host claude CLI ---
-log "Daily diary triggered for $DATE (backfill=$IS_BACKFILL, primary=claude-cli, fallback=oc-agent-$AGENT)"
+log "Daily diary triggered for $DATE (backfill=$IS_BACKFILL, primary=gemini-quick, fallback=oc-agent-$AGENT)"
 log "Context bundle: ${#CONTEXT} chars; prompt: ${#PROMPT} chars"
 
 DIARY=""
 PRIMARY_OK=false
-CLAUDE_OUT=/tmp/diary-claude-$$.txt
-# env -u ANTHROPIC_API_KEY: ensures claude uses Max plan OAuth, not metered API.
-# +e around the timeout call so we capture exit code without aborting.
+CLAUDE_OUT=/tmp/diary-gen-$$.txt
+# 2026-10-06: was `claude -p` on the Max seat (forbidden: seat-ToS + CLAUDE.md). Now engine.py quick =
+# the exact path gemini-task uses by default: free Gemini key first, paid Flash-Lite key failover, model
+# rotation on truncation/timeout. (The gemini-task shim mis-detects mode from prompt keywords, so call engine.py quick directly.)
+# +e around the call so we capture exit code without aborting. Prompt text is unchanged.
 set +e
-env -u ANTHROPIC_API_KEY timeout "$TIMEOUT" claude -p "$PROMPT" \
-  --output-format text --tools none \
+timeout "$TIMEOUT" python3 /root/.openclaw/scripts/engine.py quick "$PROMPT" --timeout 240 \
   > "$CLAUDE_OUT" 2>>"$LOG"
 CLAUDE_RC=$?
 set -e
@@ -344,22 +348,35 @@ set -e
 if [ $CLAUDE_RC -eq 0 ] && [ -s "$CLAUDE_OUT" ]; then
   DIARY=$(cat "$CLAUDE_OUT")
   if [ ${#DIARY} -le 200 ]; then
-    log "Primary (claude CLI) returned suspiciously short output (${#DIARY} chars) — treating as failure"
+    log "Primary (gemini quick) returned suspiciously short output (${#DIARY} chars) — treating as failure"
   elif ! validate_diary "$DIARY"; then
-    log "Primary (claude CLI) output FAILED content validation (${#DIARY} chars) — treating as failure, first 200: ${DIARY:0:200}"
-    output-taint mark --agent claude-cli --reason "invalid diary content" \
+    log "Primary (gemini quick) output FAILED content validation (${#DIARY} chars) — treating as failure, first 200: ${DIARY:0:200}"
+    mkdir -p /root/.openclaw/diary/rejected && cp "$CLAUDE_OUT" "/root/.openclaw/diary/rejected/${DATE}-$(date -u +%H%M%S).txt" 2>/dev/null || true
+    output-taint mark --agent gemini-quick --reason "invalid diary content" \
       --output "${DIARY:0:500}" --source daily-diary 2>/dev/null || true
   else
     PRIMARY_OK=true
-    log "Primary (claude CLI) succeeded + validated (${#DIARY} chars)"
+    log "Primary (gemini quick) succeeded + validated (${#DIARY} chars)"
   fi
 else
-  log "Primary (claude CLI) failed (exit $CLAUDE_RC, output bytes=$(stat -c%s "$CLAUDE_OUT" 2>/dev/null || echo 0))"
+  log "Primary (gemini quick) failed (exit $CLAUDE_RC, output bytes=$(stat -c%s "$CLAUDE_OUT" 2>/dev/null || echo 0))"
 fi
-rm -f "$CLAUDE_OUT"
+# NOTE: $CLAUDE_OUT is deliberately NOT deleted here — the success branch persists it first, then removes it.
+[ "$PRIMARY_OK" = true ] || rm -f "$CLAUDE_OUT"
 
 # --- Decision tree ---
 if [ "$PRIMARY_OK" = true ]; then
+  # PERSIST FULL TEXT FIRST (file + ops.db journal_entries), verified by read-back, BEFORE any posting.
+  PERSIST_ARGS=(persist "$DATE" "$CLAUDE_OUT" --meta "engine=gemini-flash(quick) backfill=$IS_BACKFILL")
+  [ "${DIARY_NO_POST:-0}" = "1" ] && PERSIST_ARGS+=(--test)
+  if PERSIST_OUT=$(python3 /root/.openclaw/scripts/daily-diary-lib.py "${PERSIST_ARGS[@]}" 2>>"$LOG"); then
+    log "Diary persisted: $PERSIST_OUT"
+  else
+    log "FATAL-ish: diary persist FAILED — NOT posting (would risk loss); raw kept at $CLAUDE_OUT"
+    health_emit error persist-failed
+    die "Diary persist failed for $DATE; raw output kept at $CLAUDE_OUT"
+  fi
+  rm -f "$CLAUDE_OUT"   # safe: full text is in diary/ + ops.db and verified
   # Primary produced text — post via host-side Discord curl
   if discord_post "$DIARY"; then
     log "Diary posted (primary path)"
@@ -385,6 +402,6 @@ else
     exit 0
   else
     health_emit error all-paths-failed
-    die "Both claude primary AND Historian fallback failed for $DATE"
+    die "Both gemini primary AND Historian fallback failed for $DATE"
   fi
 fi

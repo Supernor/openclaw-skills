@@ -14,7 +14,7 @@ umask 077
 # - live SQLite (WAL) must never be raw-copied -> consistent .backup snapshot
 # - excludes = reinstallable/regenerable trees, keeps us inside the 10GB R2
 #   free tier (npm/vendor/update/mcp-servers/extensions/browser/checkpoints/logs)
-# - retention 7 daily / 4 weekly / 3 monthly
+# - retention 7 daily / 4 weekly / 3 monthly / 5 yearly (yearly added 2026-10-06, backbone B0b: 'for life' needs a restore point older than 3 months)
 # - alert path must not depend on the thing being monitored -> telegram_direct
 #   pattern (same as stability-monitor.sh), state-change only via ops.db kv
 
@@ -105,8 +105,20 @@ fi
 # via /root/.openclaw/backups) is the consistent copy a restore should use.
 restic backup "$STAGING/ops.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup of ops.db snapshot"
 
+# === INTENT: KnownSelf backbone (design v1.1 B0b, judge finding 7): the archive of every external-AI message/proposal, the root decision ledger,
+# === approval secrets and policy config live OUTSIDE /root/.openclaw. They are append-only lifelong evidence, so they ride this nightly job. ===
+# rc 3 = snapshot created, some files unreadable (same honest handling as the main backup above).
+# B8 (2026-10-06): + secrets/ (approval-bot.token, alert.conf, audit-salt, token-hashes). The restic repo is encrypted; losing the bot token = re-run BotFather, losing audit-salt breaks hash continuity.
+restic backup /srv/knownself-public/state /srv/knownself-public/config /srv/knownself-public/secrets >> "$LOG" 2>&1
+rc=$?
+if [ "$rc" -eq 3 ]; then
+  log "WARN: knownself-public restic exit 3 — snapshot created, some files unreadable."
+elif [ "$rc" -ne 0 ]; then
+  fail "restic backup of /srv/knownself-public state+config+secrets (exit $rc)"
+fi
+
 # 3) Retention + light integrity check (5% data read, rotates by day)
-restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --prune >> "$LOG" 2>&1 || fail "restic forget/prune"
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly 5 --prune >> "$LOG" 2>&1 || fail "restic forget/prune"
 restic check --read-data-subset=5% >> "$LOG" 2>&1 || fail "restic check"
 
 kv_write 'r2-backup-state' "ok $(date -u +%FT%TZ)" \
