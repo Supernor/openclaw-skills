@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# RETIRED 2026-10-07 (deferred #251): nothing calls this any more. fix-codex-auth.sh and codex-auth-watcher.sh
+# now call sync-openai-token.sh. Kept (never delete) for history; it fails fast below because the
+# auth-profiles.json it writes no longer exists. Scar: sync-codex-auth-dead-chain-20261007.
 # ⚠️ STALE (2026-06-29) — DO NOT USE for openai/gpt-5.5. OpenClaw 2026.6.10 moved agent auth into a
 # per-agent SQLite store; this script still writes /root/.openclaw/agents/main/agent/auth-profiles.json
 # (now MISSING — the gateway no longer reads it). It "succeeds" but changes nothing the gateway uses.

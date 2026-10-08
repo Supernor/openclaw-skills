@@ -109,7 +109,11 @@ restic backup "$STAGING/ops.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup o
 # === approval secrets and policy config live OUTSIDE /root/.openclaw. They are append-only lifelong evidence, so they ride this nightly job. ===
 # rc 3 = snapshot created, some files unreadable (same honest handling as the main backup above).
 # B8 (2026-10-06): + secrets/ (approval-bot.token, alert.conf, audit-salt, token-hashes). The restic repo is encrypted; losing the bot token = re-run BotFather, losing audit-salt breaks hash continuity.
-restic backup /srv/knownself-public/state /srv/knownself-public/config /srv/knownself-public/secrets >> "$LOG" 2>&1
+# OAuth L4 C5(c) (2026-10-07): + /srv/knownself-public/oauth (HMAC keys, client secret hash, internal bearer copy: the grant ledger itself lives under state/oauth and is already covered). Added only when the directory exists, so the nightly
+# run before the OAuth deploy neither warns nor fails. A restore from a snapshot older than grant_created strands ChatGPT (re-login): see oauth-staging/deploy/DEPLOY.md "post-grant manual backup".
+KS_BACKUP_PATHS="/srv/knownself-public/state /srv/knownself-public/config /srv/knownself-public/secrets"
+[ -d /srv/knownself-public/oauth ] && KS_BACKUP_PATHS="$KS_BACKUP_PATHS /srv/knownself-public/oauth"
+restic backup $KS_BACKUP_PATHS >> "$LOG" 2>&1
 rc=$?
 if [ "$rc" -eq 3 ]; then
   log "WARN: knownself-public restic exit 3 — snapshot created, some files unreadable."

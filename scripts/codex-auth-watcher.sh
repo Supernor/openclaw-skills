@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # codex-auth-watcher.sh — Event-driven Codex auth sync.
 #
+# [2026-10-07: now watches pool-a AND pool-b and calls sync-openai-token.sh — see loop below]
 # Watches ~/.codex/auth.json for modifications using inotifywait (not polling).
 # When the file changes (e.g., after `codex login`), automatically syncs
 # the new tokens to the gateway via fix-codex-auth.sh.
@@ -50,23 +51,38 @@ if [ ! -f "$AUTH_FILE" ]; then
     log "DO THIS: Run 'codex login' to create the auth file, then this watcher will detect it."
 fi
 
+# 2026-10-07 REAUTH-FIX (deferred #251): watches BOTH pools' auth files and calls sync-openai-token.sh
+# (live sqlite-store sync + change-detected gateway restart) instead of the dead fix-codex-auth.sh ->
+# sync-codex-auth.sh chain. Every 5-min inotify timeout also retries a busy-blocked pending restart.
+POOL_B_FILE="/root/.codex-pool-b/auth.json"
+WATCH_FILES=("$AUTH_FILE")
+[ -f "$POOL_B_FILE" ] && WATCH_FILES+=("$POOL_B_FILE")
+log "Watching: ${WATCH_FILES[*]}"
+
+sync_for() {   # $1 = changed file
+    case "$1" in
+        "$POOL_B_FILE") OPENAI_SYNC_HOST_AUTH="$POOL_B_FILE" OPENAI_SYNC_PROFILE=openai:pool-b "$SCRIPT_DIR/sync-openai-token.sh" >> "$LOG" 2>&1 ;;
+        *)              "$SCRIPT_DIR/sync-openai-token.sh" >> "$LOG" 2>&1 ;;
+    esac
+}
+
 while true; do
-    # Wait for file modification. --timeout 300 re-establishes watch every 5 min
-    # (handles file deletion/recreation). Exit code 2 = timeout (normal, loop again).
-    inotifywait -e modify,create,attrib,move_self --timeout 300 "$AUTH_FILE" 2>>"$LOG"
+    # --format '%w' prints the watched file that fired. Exit 2 = timeout (normal, loop again).
+    CHANGED=$(inotifywait -e modify,create,attrib,move_self --timeout 300 --format '%w' "${WATCH_FILES[@]}" 2>>"$LOG")
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ]; then
-        # File was modified
-        log "auth.json changed — waiting 2s for file to settle"
+        log "auth file changed: $CHANGED — waiting 2s for file to settle"
         sleep 2
-        log "running fix-codex-auth.sh"
-        "$SCRIPT_DIR/fix-codex-auth.sh" >> "$LOG" 2>&1 || {
-            log "fix-codex-auth.sh failed — will retry on next file change"
-        }
+        log "running sync-openai-token.sh for $CHANGED"
+        sync_for "$CHANGED" || log "sync-openai-token.sh failed for $CHANGED — see sync-openai-token.log; will retry on next file change"
     elif [ $EXIT_CODE -eq 2 ]; then
-        # Timeout — normal, just re-establish watch
-        :
+        # Timeout — re-establish watch (picks up recreated files) and retry any busy-deferred restart.
+        if [ -f /root/.openclaw/state/openai-sync/restart-pending ]; then
+            log "restart pending — retrying"
+            OPENAI_SYNC_RESTART_ONLY=1 "$SCRIPT_DIR/sync-openai-token.sh" >> "$LOG" 2>&1 || true
+        fi
+        [ ${#WATCH_FILES[@]} -lt 2 ] && [ -f "$POOL_B_FILE" ] && WATCH_FILES+=("$POOL_B_FILE")
     else
         log "inotifywait exited with code $EXIT_CODE — retrying in 10s"
         sleep 10

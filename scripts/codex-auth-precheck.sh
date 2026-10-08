@@ -7,6 +7,7 @@
 #   Outcome codes: ok | refreshed | parse_fail_refresh
 #   DO THIS: Run fix-codex-auth.sh --check manually to see raw status.
 #
+# 2026-10-07: fix-codex-auth.sh (called below) now syncs via sync-openai-token.sh for BOTH pools; this check covers both pools.
 # Cron: 0 6 * * * /root/.openclaw/scripts/codex-auth-precheck.sh
 # Lock: flock prevents overlapping runs (cron + manual + auth-watcher).
 
@@ -74,6 +75,21 @@ except Exception:
 
 # --- Main logic ---
 REMAINING=$(get_remaining_hours)
+
+# 2026-10-07 REAUTH-FIX: pool-b coverage — use the smaller of pool-a/pool-b hours remaining.
+POOLB_HOURS=$(python3 -c "
+import json, base64, time
+try:
+    t=json.load(open('/root/.codex-pool-b/auth.json')); t=t.get('tokens',t).get('access_token','')
+    p=t.split('.')[1]; p+='='*(4-len(p)%4)
+    print(int((json.loads(base64.urlsafe_b64decode(p)).get('exp',0)-time.time())/3600))
+except Exception:
+    print('')
+" 2>/dev/null) || POOLB_HOURS=""
+if [ -n "$POOLB_HOURS" ] && [ -n "$REMAINING" ] && [ "$POOLB_HOURS" -lt "$REMAINING" ] 2>/dev/null; then
+    log "pool-b has fewer hours (${POOLB_HOURS}h) than pool-a (${REMAINING}h) — using pool-b value"
+    REMAINING="$POOLB_HOURS"
+fi
 
 if [ -z "$REMAINING" ]; then
     log "OUTCOME=parse_fail_refresh — could not determine expiry, triggering fix as safety measure"

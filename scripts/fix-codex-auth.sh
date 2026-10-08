@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 2026-10-07: FIXED — fast path below now calls sync-openai-token.sh (both pools). The warning that follows
+# describes the OLD behaviour (kept for history); sync-codex-auth.sh is retired.
 # ⚠️ STALE PATH WARNING (2026-06-29): OpenClaw 2026.6.10 MIGRATED agent auth from auth-profiles.json
 # into a per-agent SQLite store (agents/<agent>/agent/openclaw-agent.sqlite). This script's fast path
 # calls sync-codex-auth.sh, which writes the now-DEAD /root/.openclaw/agents/main/agent/auth-profiles.json
@@ -86,10 +88,14 @@ print('valid' if exp > time.time() else 'expired')
 
 if [ "$HOST_STATUS" = "valid" ]; then
     # Fast path: host tokens are good, just sync to gateway
-    log "Host tokens valid — syncing to gateway (fast path)"
-    "$SCRIPT_DIR/sync-codex-auth.sh"
+    # 2026-10-07 REAUTH-FIX: was sync-codex-auth.sh (dead auth-profiles.json chain). Now the live sqlite-store
+    # sync for BOTH pools; it restarts the gateway itself, only when a token actually changed.
+    log "Host tokens valid — syncing both pools via sync-openai-token.sh (fast path)"
+    OPENAI_SYNC_NO_RESTART=1 "$SCRIPT_DIR/sync-openai-token.sh" || log "pool-a sync reported failure (see sync-openai-token.log)"
+    OPENAI_SYNC_HOST_AUTH=/root/.codex-pool-b/auth.json OPENAI_SYNC_PROFILE=openai:pool-b \
+        "$SCRIPT_DIR/sync-openai-token.sh" || log "pool-b sync reported failure (see sync-openai-token.log)"
     log "fix-codex-auth: done (fast path)"
-    echo "FIXED: Host tokens were valid. Synced to gateway."
+    echo "FIXED: Host tokens were valid. Synced to gateway (restart only if a token changed)."
 else
     # Slow path: host tokens expired too, need full reauth
     log "Host tokens expired — starting full reauth flow"
