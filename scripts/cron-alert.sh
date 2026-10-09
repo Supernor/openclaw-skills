@@ -39,6 +39,12 @@ notify_failure() {
     local DISCORD_STATUS
 
     TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # State-change-only (2026-10-08): first failure + 24h reminders notify; repeats are logged only.
+    GATE=$(python3 /root/.openclaw/scripts/cron-alert-state.py fail "$JOB_NAME" 2>/dev/null | head -1)
+    if [ "${GATE%% *}" = "SUPPRESS" ]; then
+        echo "[${TS}] job=${JOB_NAME} exit=${EXIT_CODE} suppressed (${GATE})" >> /root/.openclaw/logs/cron-alert.log
+        return 0
+    fi
     # Truncate output for incident description
     SHORT_OUTPUT=$(printf "%s" "$OUTPUT" | tail -5 | head -c 500)
 
@@ -74,6 +80,11 @@ ${SHORT_OUTPUT}"; then
         >> /root/.openclaw/logs/cron-alert.log
 }
 
+if [ "${1:-}" = "--recovered" ]; then
+    telegram_direct "Cron RECOVERED: ${2:-?} (${3:-})" || true
+    exit 0
+fi
+
 if [ "${1:-}" = "--notify-only" ]; then
     shift
     if [ "$#" -lt 2 ]; then
@@ -105,6 +116,11 @@ unset CRON_ALERT_PARENT
 
 if [ $EXIT_CODE -ne 0 ]; then
     notify_failure "$JOB_NAME" "$EXIT_CODE" "$OUTPUT"
+fi
+
+if [ $EXIT_CODE -eq 0 ]; then
+    REC=$(python3 /root/.openclaw/scripts/cron-alert-state.py ok "$JOB_NAME" 2>/dev/null | head -1)
+    [ "${REC%% *}" = "RECOVERED" ] && telegram_direct "Cron RECOVERED: ${JOB_NAME} (${REC#RECOVERED })" || true
 fi
 
 exit $EXIT_CODE

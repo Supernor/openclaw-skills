@@ -1,10 +1,5 @@
 #!/bin/bash
 # === INTENT ===
-# Reactor's inbound "webhook": exit (= wake orchestrator) the moment bb_messages grows.
-B=$(sqlite3 /root/.openclaw/ops.db "SELECT COUNT(*) FROM bb_messages;")
-for i in $(seq 1 360); do
-  sleep 10
-  N=$(sqlite3 /root/.openclaw/ops.db "SELECT COUNT(*) FROM bb_messages;")
-  if [ "$N" != "$B" ]; then echo "NEW BACKBONE MAIL: $B -> $N (run bb-read --to robert)"; exit 0; fi
-done
-echo "no new mail in 60 min (heartbeat)"
+# Launch the persistent backbone-mail watcher (python does the work; exit = Reactor wake). Pass-through args: --forever --interval N --max-hours H.
+# Replaced the old 60-min count-poll (backup: /root/.openclaw/backups/bb-mail-watch.sh.pre-persistent-20261008).
+exec python3 /root/.openclaw/scripts/bb-mail-watch.py "$@"

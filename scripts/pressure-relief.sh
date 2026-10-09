@@ -266,7 +266,17 @@ if [ "$MODE" = "disk" ]; then
     # Remove ALL unused images (not just dangling)
     act "Docker: aggressive prune — removing all unused images"
     if [ "$DRY_RUN" != "--dry-run" ]; then
-      docker image prune -a -f >/dev/null 2>&1
+      # 2026-10-08: this used to be `docker image prune -a -f`, which deleted the 9.8 staging/fallback images (incident, deferred #312).
+      # Now: remove unused images one by one but NEVER openclaw:staging-*, openclaw:local*, *rollback*, *pre-update* (upgrade cutover/rollback artifacts).
+      PROTECT_RE='^openclaw:(staging-|local)|rollback|pre-update'
+      USED_IDS=$(docker ps -a --format '{{.Image}}' | xargs -r -n1 docker image inspect --format '{{.Id}}' 2>/dev/null | sort -u)
+      docker images --format '{{.ID}} {{.Repository}}:{{.Tag}}' | while read -r iid ref; do
+        echo "$ref" | grep -Eq "$PROTECT_RE" && continue
+        full=$(docker image inspect --format '{{.Id}}' "$iid" 2>/dev/null)
+        echo "$USED_IDS" | grep -qx "$full" && continue
+        docker rmi "$ref" >/dev/null 2>&1 || true
+      done
+      docker image prune -f >/dev/null 2>&1
     fi
 
     # Flush entire build cache

@@ -80,6 +80,14 @@ if should_alert_failure; then
     /root/.openclaw/scripts/cron-alert.sh --notify-only "$JOB_NAME" "$EXIT_CODE" "$TAIL" >/dev/null 2>&1 || true
 fi
 
+# Recovery notice (2026-10-08): a job that was failing and now exits 0 clears its alert state and tells Robert once.
+if [ "$EXIT_CODE" -eq 0 ] && [ "${CRON_ALERT_PARENT:-}" != "1" ]; then
+    REC=$(python3 /root/.openclaw/scripts/cron-alert-state.py ok "$JOB_NAME" 2>/dev/null | head -1)
+    if [ "${REC%% *}" = "RECOVERED" ]; then
+        /root/.openclaw/scripts/cron-alert.sh --recovered "$JOB_NAME" "${REC#RECOVERED }" >/dev/null 2>&1 || true
+    fi
+fi
+
 # Also echo the output so existing log redirects still work
 echo "$OUTPUT"
 

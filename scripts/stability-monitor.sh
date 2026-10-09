@@ -105,14 +105,38 @@ resolve_gateway_downtime_incident() {
 # Direct Telegram send — bypasses gateway entirely (works when gateway is down)
 telegram_direct() {
   local MSG="$1"
-  local TOKEN
-  TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-  [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-  [ -z "$TOKEN" ] && { log "telegram_direct: no token found"; return 1; }
-  curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-    -d chat_id="${TELEGRAM_TARGET}" \
-    -d text="${MSG}" \
-    -d parse_mode=Markdown >/dev/null 2>&1
+  local TOKEN RESPONSE CURL_RC HTTP_STATUS BODY API_RESULT
+  TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2- | tr -d '\r')
+  [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2- | tr -d '\r')
+  [ -z "$TOKEN" ] && { log "ERROR: telegram_direct token missing WHY: /root/openclaw/.env has no TELEGRAM_BOT_TOKEN_ROBERT or TELEGRAM_BOT_TOKEN value. DO THIS: restore the Robert Telegram bot token in /root/openclaw/.env without printing it. VERIFY: grep -q '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env"; return 1; }
+  [ -z "${TELEGRAM_TARGET:-}" ] && { log "ERROR: telegram_direct chat target missing WHY: telegram-resolve robert returned empty. DO THIS: fix /usr/local/bin/telegram-resolve or its Robert fallback. VERIFY: telegram-resolve robert >/dev/null"; return 1; }
+
+  RESPONSE=$(curl -sS --max-time 15 -w '\n%{http_code}' -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${TELEGRAM_TARGET}" \
+    --data-urlencode "text=${MSG}" 2>&1)
+  CURL_RC=$?
+  if [ "$CURL_RC" -ne 0 ]; then
+    log "ERROR: telegram_direct curl failed WHY: curl exited rc=${CURL_RC} before Telegram accepted the alert. DO THIS: check outbound network/DNS from this host. VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'."
+    return 1
+  fi
+
+  HTTP_STATUS="${RESPONSE##*$'\n'}"
+  BODY="${RESPONSE%$'\n'$HTTP_STATUS}"
+  if API_RESULT=$(printf "%s" "$BODY" | python3 -c 'import json, sys
+status = sys.argv[1]
+data = json.load(sys.stdin)
+if data.get("ok") is True and status.startswith("2"):
+    print("ok")
+    sys.exit(0)
+desc = str(data.get("description", "unknown"))[:180]
+print("HTTP %s error_code=%s description=%s" % (status, data.get("error_code", "unknown"), desc))
+sys.exit(1)' "$HTTP_STATUS" 2>/dev/null); then
+    log "telegram_direct: Telegram API accepted message"
+    return 0
+  fi
+
+  log "ERROR: telegram_direct API rejected alert WHY: ${API_RESULT:-Telegram returned an unreadable response}. DO THIS: run the dry probe documented in /root/.openclaw/boards/stability-send-fix-20261008.md, then check token/chat resolution without printing secrets. VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'."
+  return 1
 }
 
 # Bridge single-owner enforcement: /root/bridge-dev/dashboard-api.py must be
@@ -222,6 +246,20 @@ probe_gateway_health() {
 CHECK_ERRORS=0
 RESTART_COUNT=0
 BRIDGE_RESTART_COUNT=0
+
+# [added 2026-10-08] MAINTENANCE FLAG: /root/.openclaw/state/maintenance-mode (set via `maintenance-mode on <min>`).
+# Valid flag => deliberate downtime, skip ALL checks/restarts (the 9.9 cutover was auto-restarted 2 min in, no flag existed).
+# Expired flag => ignored + ONE alert (gate script dedupes), so a forgotten flag can never become a silent outage.
+MG_OUT=$(python3 /root/.openclaw/scripts/maintenance-gate.py check 2>&1); MG_RC=$?
+if [ "$MG_RC" -eq 0 ]; then
+  log "maintenance hold: $MG_OUT - monitor standing down (no checks, no restarts)"
+  # annotate-never-swallow: record the held cycle against the expected-events window (best-effort; flag semantics unchanged)
+  python3 /root/.openclaw/scripts/expected-window.py check stability-monitor >/dev/null 2>&1 || true
+  exit 0
+elif [ "$MG_RC" -eq 2 ]; then
+  log "ALERT: $MG_OUT"
+  telegram_direct "$MG_OUT"
+fi
 
 # Initialize state file if missing
 if [ ! -f "$STATE_FILE" ]; then
@@ -768,7 +806,7 @@ send_alert() {
   local HOST="${3:-$(hostname)}"
 
   # ALWAYS send via direct Telegram (no gateway dependency)
-  telegram_direct "$MSG"
+  telegram_direct "$MSG" || log "ERROR: Telegram alert delivery failed WHY: telegram_direct returned non-zero for this alert. DO THIS: inspect the preceding telegram_direct ERROR line in ${LOG}. VERIFY: send one labelled repair test after fixing the direct path."
 
   # If gateway is running, also send rich Discord message with buttons.
   # Capture the send result so callers can PROVE whether Discord delivery actually worked
@@ -829,7 +867,7 @@ Consecutive failures: ${FAILURES}
 Checked: $(date -u +%H:%M) UTC"
 
   send_alert "$MSG" "general" "$(hostname)"
-  log "Alert sent to Discord"
+  log "Alert dispatch attempted"
   else
     log "Alert suppressed (same as last, ${MINUTES_SINCE_ALERT}m since last send, failures=$FAILURES)"
   fi
@@ -865,7 +903,7 @@ if [ -n "$RECOVERED" ]; then
 Checked: $(date -u +%H:%M) UTC"
 
   send_alert "$MSG" "general" "$(hostname)"
-  log "Recovery notice sent to Discord"
+  log "Recovery dispatch attempted"
 fi
 
 # Quiet when healthy

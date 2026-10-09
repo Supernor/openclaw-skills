@@ -2,8 +2,9 @@
 
 echo -e "AGENT NAME\tSCORE\tFLAGS"
 echo -e "----------\t-----\t-----"
+# 2026-10-08: workspace-main dropped from loop (orphan dir archived/removed per Robert ruling #330; see component:divergence-orphan-workspace-main)
 
-for agent_dir in /root/.openclaw/workspace-spec-*/ /root/.openclaw/workspace-main/ /root/.openclaw/workspace-relay/ /root/.openclaw/workspace-eoin/; do
+for agent_dir in /root/.openclaw/workspace-spec-*/ /root/.openclaw/workspace-relay/ /root/.openclaw/workspace-eoin/; do
     [ -d "$agent_dir" ] || continue
     AGENT_NAME=$(basename "$(echo "$agent_dir" | sed 's/\/$//')")
     SCORE=0
