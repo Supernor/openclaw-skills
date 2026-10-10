@@ -201,7 +201,8 @@ probe_gateway_health() {
   best_dc=0
 
   for attempt in $(seq 1 "$HEALTH_PROBE_ATTEMPTS"); do
-    output=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway openclaw health 2>/dev/null | grep -v "level=warning")
+    # Bound INSIDE the container; killing docker exec alone leaves its CLI alive.
+    output=$(timeout --kill-after=5s 40s docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway timeout --signal=TERM --kill-after=5s 25s openclaw health 2>/dev/null | grep -v "level=warning")
     if [ $? -eq 0 ]; then
       HEALTH_PROBE_MODE="unhealthy"
       tg_ok=0
@@ -815,7 +816,7 @@ send_alert() {
   if [ "$CONTAINER_STATUS" = "running" ]; then
     local DC_OUT
     DC_OUT=$(docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway \
-      openclaw message send --channel discord --target "$DISCORD_OPS_ALERTS" \
+      timeout --signal=TERM --kill-after=5s 25s openclaw message send --channel discord --target "$DISCORD_OPS_ALERTS" \
       --message "$MSG" 2>/dev/null | grep -v "level=warning")
     echo "$DC_OUT" | tail -1
     if echo "$DC_OUT" | grep -qiE "message id|sent via discord|delivered|\"ok\"[[:space:]]*:[[:space:]]*true"; then
@@ -915,6 +916,11 @@ fi
 for pid in $(pgrep -f "vscode-server" 2>/dev/null); do
   echo 300 > /proc/$pid/oom_score_adj 2>/dev/null
 done
+
+# Cron-incident backstop (2026-10-09, trio rule: trigger / paging-backstop / freshness-watch): pages stuck cron-steward states, re-kicks a lost
+# trigger, and checks the .path unit is alive. Own try: a failure here must never change this monitor's exit code.
+python3 /root/.openclaw/scripts/cron-incident-steward.py watchdog >> "${LOG:-/root/.openclaw/logs/stability-monitor.log}" 2>&1 || log "WARN cron-incident-steward watchdog failed. DO THIS: python3 /root/.openclaw/scripts/cron-incident-steward.py watchdog (read the error). VERIFY: it exits 0"
+python3 /root/.openclaw/scripts/board-live.py watchdog >> "${LOG:-/root/.openclaw/logs/stability-monitor.log}" 2>&1 || log "WARN board-live watchdog flagged (see above). DO THIS: python3 /root/.openclaw/scripts/board-live.py stats. VERIFY: rendered_gen == dirty_gen"
 
 # Exit codes: 2=monitoring broken, 1=alerts found, 0=all healthy
 # RESULT_LABEL tells cron-wrapper what the exit code MEANS (for agent analysis)

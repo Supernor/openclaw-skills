@@ -62,6 +62,10 @@ notify_failure() {
     echo "{\"ts\":\"${TS}\",\"source\":\"cron-alert\",\"job\":\"${JOB_NAME}\",\"exit_code\":${EXIT_CODE}}" \
         >> /root/.openclaw/health/buffer.jsonl 2>/dev/null || true
 
+    if [ "${CRON_STEWARD_OWNS:-}" = "1" ]; then
+        # cron-incident-steward narrates this failure itself (cause -> being fixed -> recovered); skip the bare "Cron FAILED" lines.
+        TELEGRAM_STATUS="steward"; DISCORD_STATUS="steward"
+    else
     if telegram_direct "Cron FAILED: ${JOB_NAME} (exit ${EXIT_CODE}) at ${TS}
 ${SHORT_OUTPUT}"; then
         TELEGRAM_STATUS="sent"
@@ -74,6 +78,7 @@ ${SHORT_OUTPUT}"; then
         openclaw message send --channel discord --account robert --target ops-alerts \
         -m "Cron FAILED: ${JOB_NAME} (exit ${EXIT_CODE}) at ${TS}" 2>/dev/null | grep -v "level=warning" >/dev/null || true
     DISCORD_STATUS="attempted"
+    fi
 
     mkdir -p /root/.openclaw/logs
     echo "[${TS}] job=${JOB_NAME} exit=${EXIT_CODE} telegram=${TELEGRAM_STATUS} discord=${DISCORD_STATUS}" \

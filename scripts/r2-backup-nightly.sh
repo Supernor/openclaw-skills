@@ -113,12 +113,26 @@ restic backup "$STAGING/ops.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup o
 # run before the OAuth deploy neither warns nor fails. A restore from a snapshot older than grant_created strands ChatGPT (re-login): see oauth-staging/deploy/DEPLOY.md "post-grant manual backup".
 KS_BACKUP_PATHS="/srv/knownself-public/state /srv/knownself-public/config /srv/knownself-public/secrets"
 [ -d /srv/knownself-public/oauth ] && KS_BACKUP_PATHS="$KS_BACKUP_PATHS /srv/knownself-public/oauth"
-restic backup $KS_BACKUP_PATHS >> "$LOG" 2>&1
+# Page metadata uses WAL. Preserve it with the host's locked SQLite backup API,
+# alongside every blob/version. Do not raw-copy a live page database into restic.
+PAGE_SNAPSHOT=""
+if [ -f /srv/knownself-public/state/pages/pages.db ]; then
+  PAGE_SNAPSHOT="$STAGING/pages-$(date -u +%Y%m%dT%H%M%SZ)"
+  python3 -I -B /srv/knownself-public/backbone/pages.py --backup "$PAGE_SNAPSHOT" >> "$LOG" 2>&1 || fail "page SQLite/blob backup bundle"
+fi
+restic backup $KS_BACKUP_PATHS \
+  --exclude /srv/knownself-public/state/pages/pages.db \
+  --exclude /srv/knownself-public/state/pages/pages.db-wal \
+  --exclude /srv/knownself-public/state/pages/pages.db-shm >> "$LOG" 2>&1
 rc=$?
 if [ "$rc" -eq 3 ]; then
   log "WARN: knownself-public restic exit 3 — snapshot created, some files unreadable."
 elif [ "$rc" -ne 0 ]; then
   fail "restic backup of /srv/knownself-public state+config+secrets (exit $rc)"
+fi
+
+if [ -n "$PAGE_SNAPSHOT" ]; then
+  restic backup "$PAGE_SNAPSHOT" >> "$LOG" 2>&1 || fail "restic backup of verified page bundle"
 fi
 
 # 3) Retention + light integrity check (5% data read, rotates by day)

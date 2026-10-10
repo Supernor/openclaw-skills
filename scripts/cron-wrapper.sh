@@ -32,7 +32,7 @@ set -o pipefail
 JOB_NAME="${1:?Usage: cron-wrapper.sh JOB_NAME command [args...]}"
 shift
 
-OPS_DB="/root/.openclaw/ops.db"
+OPS_DB="${OPS_DB:-/root/.openclaw/ops.db}"; export OPS_DB
 START_MS=$(date +%s%3N 2>/dev/null || echo 0)
 
 # Run the actual command, capture output
@@ -76,14 +76,28 @@ INSERT INTO cron_outcomes (job_name, exit_code, output_tail, duration_ms, result
 VALUES ('$(echo "$JOB_NAME" | tr "'" "_")', $EXIT_CODE, '$(echo "$TAIL" | tr "'" "_" | head -c 500)', $DURATION, '$(echo "$RESULT_LABEL" | tr "'" "_")')
 " 2>/dev/null
 
+# Cron-failure stewardship (2026-10-09, Robert 09:32 ET): a real failure becomes an INCIDENT (cron_incidents) and touches the wake trigger; the
+# steward (systemd cron-incident-steward.path) diagnoses, fixes, re-runs and narrates it. Fail-open: if the steward is off/broken it prints
+# STEWARD_OFF and the legacy cron-alert.sh path below pages exactly as before, so an alert is never lost. Design: boards/cron-sentinel-design-20261009.md
+STEWARD=""
 if should_alert_failure; then
-    /root/.openclaw/scripts/cron-alert.sh --notify-only "$JOB_NAME" "$EXIT_CODE" "$TAIL" >/dev/null 2>&1 || true
+    STEWARD=$(CRON_INCIDENT_TAIL="$(printf '%s' "$OUTPUT" | tail -c 500)" python3 /root/.openclaw/scripts/cron-incident-steward.py record "$JOB_NAME" "$EXIT_CODE" 2>/dev/null | head -1)
+    case "$STEWARD" in
+        STEWARD_RERUN) ;;   # the steward's own verification re-run: it reads the exit code itself, no new incident, no page
+        STEWARD_OWNS)
+            # steward narrates; legacy path still opens the ops.db incident + state gate but stays quiet on Telegram/Discord
+            if [ "${CRON_STEWARD_KEEP_LEGACY_INCIDENT:-1}" != "0" ]; then
+                CRON_STEWARD_OWNS=1 /root/.openclaw/scripts/cron-alert.sh --notify-only "$JOB_NAME" "$EXIT_CODE" "$TAIL" >/dev/null 2>&1 || true
+            fi ;;
+        *) /root/.openclaw/scripts/cron-alert.sh --notify-only "$JOB_NAME" "$EXIT_CODE" "$TAIL" >/dev/null 2>&1 || true ;;
+    esac
 fi
 
 # Recovery notice (2026-10-08): a job that was failing and now exits 0 clears its alert state and tells Robert once.
 if [ "$EXIT_CODE" -eq 0 ] && [ "${CRON_ALERT_PARENT:-}" != "1" ]; then
+    SOK=$(python3 /root/.openclaw/scripts/cron-incident-steward.py ok "$JOB_NAME" 2>/dev/null | head -1)   # steward closes/narrates its own incident
     REC=$(python3 /root/.openclaw/scripts/cron-alert-state.py ok "$JOB_NAME" 2>/dev/null | head -1)
-    if [ "${REC%% *}" = "RECOVERED" ]; then
+    if [ "${REC%% *}" = "RECOVERED" ] && [ "$SOK" != "STEWARD_HANDLED" ]; then   # steward already said "recovered": don't say it twice
         /root/.openclaw/scripts/cron-alert.sh --recovered "$JOB_NAME" "${REC#RECOVERED }" >/dev/null 2>&1 || true
     fi
 fi
