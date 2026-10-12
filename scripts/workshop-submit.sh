@@ -39,7 +39,7 @@ esac
 # VERIFY: grep -c "\"$HOST_OP\"" /root/.openclaw/scripts/host-ops-executor.py
 # Keep in sync with host-ops-executor.py "Registered operations" startup log line.
 # (Stale list rejected claude-code-run etc. until 2026-06-11.)
-VALID_OPS="bridge-edit bridge-style codex-reauth codex-reauth-telegram codex-run claude-code-run deploy-preview deploy-production discord-button eoin-escalate error-audit gateway-health gateway-restart gauntlet-design-review gauntlet-run gemini-run gemini-search generate-comp github-cli infra-audit lighthouse loop-redirect pool-fuel pool-status post-update-verify reactor-dispatch reactor-execute reactor-plan reactor-status reactor-stop reactor-undo relay-escalate scaffold-site screenshot session-transcript stitch-mockup sync-codex-auth sync-secrets system-health system-observe system-self-test workspace-cli backup-suite openclaw-update"
+VALID_OPS="bridge-edit bridge-style codex-reauth codex-reauth-telegram codex-run claude-code-run deploy-preview deploy-production discord-button eoin-escalate error-audit gateway-health gateway-restart gauntlet-design-review gauntlet-run gemini-run gemini-search generate-comp github-cli infra-audit lighthouse loop-redirect pool-fuel pool-status post-update-verify reactor-dispatch reactor-execute reactor-plan reactor-status reactor-stop reactor-undo relay-escalate scaffold-site screenshot session-transcript stitch-mockup sync-codex-auth sync-secrets system-health system-observe system-self-test workspace-cli backup-suite openclaw-update braindump-link"
 VALID=false
 for op in $VALID_OPS; do
   if [ "$HOST_OP" = "$op" ]; then VALID=true; break; fi
