@@ -106,7 +106,11 @@ echo "[5/5] repo-health..."
 HEALTH_OUT=$(run_on_host "/home/node/.openclaw/scripts/repo-health.sh" || true)
 HEALTH_STATUS=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','ERROR'))" 2>/dev/null || echo "ERROR")
 HEALTH_SUMMARY=$(echo "$HEALTH_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('summary',''))" 2>/dev/null || echo "")
-[ "$HEALTH_STATUS" != "PASS" ] && FAILURES=$((FAILURES+1))
+# === INTENT: repo-health WARN (e.g. a repo with nothing new to commit) is a WARNING, never a
+# suite failure — the 4 backup steps already proved the data was pushed. Only a non-PASS/non-WARN
+# repo-health (ERROR) counts as failure. (Fix 2026-10-13: WARN made exit 1 -> task cancelled nightly.) ===
+WARNINGS_N=0
+if [ "$HEALTH_STATUS" = "WARN" ]; then WARNINGS_N=$((WARNINGS_N+1)); elif [ "$HEALTH_STATUS" != "PASS" ]; then FAILURES=$((FAILURES+1)); fi
 RESULTS="${RESULTS}repo-health: ${HEALTH_STATUS}\n"
 echo "  -> $HEALTH_STATUS — ${HEALTH_SUMMARY}"
 
@@ -139,11 +143,17 @@ if [ "$FAILURES" -ne 0 ]; then
     print_reason "skills-backup"    "$SKILLS_STATUS" "$SKILLS_OUT"
     print_reason "workspace-backup" "$WS_STATUS"     "$WS_OUT"
     print_reason "vps-backup"       "$VPS_STATUS"    "$VPS_OUT"
-    print_reason "repo-health"      "$HEALTH_STATUS" "$HEALTH_OUT"
+    [ "$HEALTH_STATUS" != "WARN" ] && print_reason "repo-health"      "$HEALTH_STATUS" "$HEALTH_OUT"
 fi
 
 if [ "$FAILURES" -eq 0 ]; then
-    echo "RESULT: ALL PASSED"
+    if [ "$WARNINGS_N" -gt 0 ]; then
+        echo "WARNINGS (non-fatal):"
+        print_reason "repo-health" "$HEALTH_STATUS" "$HEALTH_OUT"
+        echo "RESULT: COMPLETED WITH WARNINGS (all 4 backup steps PASS)"
+    else
+        echo "RESULT: ALL PASSED"
+    fi
     exit 0
 else
     echo "RESULT: ${FAILURES} FAILURE(S) — see WHY above"

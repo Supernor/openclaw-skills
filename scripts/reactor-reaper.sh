@@ -71,7 +71,7 @@ AGED_BLOCKED=$(sqlite3 "$HOST_OPS_DB" "
   UPDATE tasks SET status = 'cancelled',
     outcome = COALESCE(outcome,'') || ' [auto-cancelled: blocked >24h]',
     updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-  WHERE status = 'blocked'
+  WHERE status = 'blocked' AND task NOT LIKE '%backup%' AND task NOT LIKE '%Backup%'
   AND REPLACE(REPLACE(updated_at, 'T', ' '), 'Z', '') < datetime('now', '-24 hours');
   SELECT changes();
 " 2>/dev/null) || AGED_BLOCKED=0
