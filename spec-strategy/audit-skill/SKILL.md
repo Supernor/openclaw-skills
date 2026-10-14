@@ -5,6 +5,27 @@ version: 1.0.0
 tags: [meta, quality, audit, skills]
 ---
 
+Runs where: container
+
+## Execution location
+Shared files: host `/root/.openclaw/` = container `/home/node/.openclaw/`.
+Read shared files using the container path. Host-only references below preserve
+commands and flags for a host worker; never execute those payloads in the gateway.
+Request the selected step with the container-accessible submission script:
+
+```bash
+bash /home/node/.openclaw/scripts/workshop-submit.sh "Host-only: <selected command, arguments, safeguards, required output>" spec-ops routine "" reactor-dispatch
+```
+
+The fifth argument is `host_op`. Submission returns a task ID, not completion.
+Use `ops_query` with `SELECT id,status,outcome,result,errors FROM tasks WHERE id=<id>`;
+wait for the required output and preserve the original step order and failure gates.
+A `host-only payload:` prefix identifies request text, not a shell command.
+Choose the applicable example, not every alternative in a reference block.
+Use `chart_read`, `chart_search_compact`, and `chart_add` MCP tools for all chart
+operations below instead of the host chart CLI. Use KnownSelf MCP for host-memory
+operations; host service/container operations require a host request.
+
 # Audit Skill
 
 ## Purpose
@@ -30,7 +51,7 @@ checks against the new standard.
 
 ### Phase 1: Load the checklist
 
-Read `/root/.openclaw/skills/create-skill/SKILL.md` and extract the best
+Read `/home/node/.openclaw/skills/create-skill/SKILL.md` and extract the best
 practices. As of v1.0.0, the checklist is:
 
 | # | Practice | What to check |
@@ -60,7 +81,7 @@ For each skill to audit:
 
 ```bash
 # List all skills in a workspace
-ls /root/.openclaw/workspace-<agent>/skills/
+ls /home/node/.openclaw/workspace-<agent>/skills/
 ```
 
 Read each SKILL.md and score it against the checklist:
@@ -104,10 +125,10 @@ For each skill scoring below B:
 To audit system-wide:
 ```bash
 # Find all SKILL.md files
-find /root/.openclaw/workspace*/skills/ -name "SKILL.md" | wc -l
+find /home/node/.openclaw/workspace*/skills/ -name "SKILL.md" | wc -l
 
 # Audit one workspace at a time
-for ws in /root/.openclaw/workspace*/skills/; do
+for ws in /home/node/.openclaw/workspace*/skills/; do
   echo "=== $(basename $(dirname $ws)) ==="
   ls "$ws"
 done
@@ -124,7 +145,7 @@ Priority order for auditing:
 
 **"create-skill SKILL.md not found"**
 - The source of truth for best practices is missing.
-- CHECK: `ls /root/.openclaw/skills/create-skill/SKILL.md`
+- CHECK: `ls /home/node/.openclaw/skills/create-skill/SKILL.md`
 - FIX: The file should exist at that path. If deleted, it needs to be recreated
   (check openclaw-skills repo on GitHub for the backup).
 
@@ -138,8 +159,8 @@ Priority order for auditing:
 
 ## Related
 - `/create-skill` — the source of truth for best practices (READ THIS FIRST)
-- `chart read skill-create-skill` — meta-skill creation context
-- `chart read reading-repoman-skills-audit-20260518` — first audit that established the pattern
-- `chart search "skill"` — all skill-related charts
+- `chart_read(id="skill-create-skill")` — meta-skill creation context
+- `chart_read(id="reading-repoman-skills-audit-20260518")` — first audit that established the pattern
+- `chart_search_compact(query="skill")` — all skill-related charts
 
 Intent: Quality [I-quality].

@@ -339,10 +339,20 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
     if echo "$PREV_STATE" | python3 -c "import json,sys; s=json.load(sys.stdin); exit(0 if s.get('telegram')=='down' else 1)" 2>/dev/null; then
       RECOVERED="${RECOVERED}Telegram bot recovered. "
     fi
+  elif [ "$HEALTH_PROBE_MODE" = "command_failed" ]; then
+    # [relayaudit 2026-10-13] WHAT: `openclaw health` could not RUN (docker exec timed out / container OOM-squeezed) - that is NOT proof Telegram is down.
+    # 29 pages 10-09..10-10 said "Telegram gateway connection is DOWN" while Robert was chatting through it. Page only after 3 consecutive runs (~15 min), honest wording.
+    HPF_FILE="/root/.openclaw/state/health-probe-fail-count"
+    HPF=$(cat "$HPF_FILE" 2>/dev/null || echo 0); HPF=$((HPF + 1)); echo "$HPF" > "$HPF_FILE"
+    if [ "$HPF" -ge 3 ]; then
+      ALERTS="${ALERTS}Gateway health probe could not run ${HPF} checks in a row (the openclaw health command timed out; container is ${CONTAINER_STATUS}, so this usually means gateway memory/CPU pressure, not a Telegram outage - see 'gateway-memory-watchdog' and logs/stability-monitor.log). "
+    fi
+    log "ALERT: health probe could not run (consecutive=$HPF; pages at 3)"
   else
     ALERTS="${ALERTS}Telegram gateway connection is DOWN (Telegram API itself may be fine — this alert was sent directly). "
     log "ALERT: Telegram down (gateway connection, not API — alert sent via telegram_direct)"
   fi
+  [ "$HEALTH_PROBE_MODE" != "command_failed" ] && echo 0 > /root/.openclaw/state/health-probe-fail-count
 
   # Discord bot status — only alert if health output actually reports a Discord line.
   # WHY CONDITIONAL: Since v2026.5.0, Discord is an externalized npm plugin (@openclaw/discord).
@@ -576,7 +586,8 @@ if [ "$DISK_PCT" -gt 75 ]; then
   if [ -x "$RELIEF_SCRIPT" ]; then
     DISK_RELIEF_OUT=$("$RELIEF_SCRIPT" "$DISK_TIER" --disk 2>&1) || true
     log "DISK RELIEF: $DISK_RELIEF_OUT"
-    ALERTS="${ALERTS}Disk relief: ${DISK_RELIEF_OUT}. "
+    # [relayaudit 2026-10-13] bracketed so stability-alert-dedupe.py ignores the variable relief text
+    ALERTS="${ALERTS}[relief: ${DISK_RELIEF_OUT//$'\n'/ }] "
   fi
 fi
 
@@ -842,10 +853,16 @@ except: print(999)
 " 2>/dev/null) || MINUTES_SINCE_ALERT=999
   fi
   # Send if: (1) new alert text, (2) first alert, or (3) 30+ min since last send
+  # [relayaudit 2026-10-13] OLD rule compared raw text, so volatile numbers (disk %, load avg, MB) made every run "new" => ~35 pages/day for ONE chronic state.
+  # NEW: stability-alert-dedupe.py decides per normalized fragment with cooldowns (chronic 6-24h, real state changes 30m). Helper failure => fail OPEN (send).
+  # Restore: cp backups/stability-monitor.sh.preedit-relayaudit-20261013 stability-monitor.sh
   SHOULD_SEND="no"
-  if [ "$ALERTS" != "$PREV_ALERT" ]; then SHOULD_SEND="yes"; fi
-  if [ "$FAILURES" -le 1 ]; then SHOULD_SEND="yes"; fi
-  if [ "$MINUTES_SINCE_ALERT" -ge 30 ]; then SHOULD_SEND="yes"; fi
+  DEDUPE_VERDICT=$(printf '%s' "$ALERTS" | python3 /root/.openclaw/scripts/stability-alert-dedupe.py decide 2>>"$LOG") || DEDUPE_VERDICT="ERROR"
+  case "$DEDUPE_VERDICT" in
+    SEND) SHOULD_SEND="yes" ;;
+    SUPPRESS) SHOULD_SEND="no" ;;
+    *) SHOULD_SEND="yes"; log "WARN stability-alert-dedupe.py failed - failing OPEN (sending). DO THIS: python3 /root/.openclaw/scripts/stability-alert-dedupe.py selftest" ;;
+  esac
 
   if [ "$SHOULD_SEND" = "yes" ]; then
   # Build resource snapshot for context
@@ -870,7 +887,7 @@ Checked: $(date -u +%H:%M) UTC"
   send_alert "$MSG" "general" "$(hostname)"
   log "Alert dispatch attempted"
   else
-    log "Alert suppressed (same as last, ${MINUTES_SINCE_ALERT}m since last send, failures=$FAILURES)"
+    log "Alert suppressed (normalized fragments inside cooldown - see stability-alert-dedupe.py; failures=$FAILURES)"
   fi
 fi
 

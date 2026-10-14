@@ -189,12 +189,14 @@ if should_run health; then
   # systemd_services
   S=$(date +%s%N | cut -b1-13)
   SVCS="openclaw-host-ops openclaw-bridge-dev openclaw-reactor openclaw-codex-auth-watch openclaw-bridge-watcher"
-  DOWN=""
+  DOWN=""; SKIPPED_DISABLED=""
   for svc in $SVCS; do
+    # [relayaudit 2026-10-13] a unit that is deliberately DISABLED (e.g. openclaw-reactor, disabled 10-09) is not a fault; failing the daily test + paging for it was noise.
+    [ "$(systemctl is-enabled "$svc" 2>/dev/null)" = "disabled" ] && { SKIPPED_DISABLED="$SKIPPED_DISABLED $svc"; continue; }
     systemctl is-active "$svc" >/dev/null 2>&1 || DOWN="$DOWN $svc"
   done
   if [ -z "$DOWN" ]; then
-    record health systemd_services pass "5/5 active" $(( $(date +%s%N | cut -b1-13) - S ))
+    record health systemd_services pass "all enabled units active${SKIPPED_DISABLED:+ (skipped disabled:$SKIPPED_DISABLED)}" $(( $(date +%s%N | cut -b1-13) - S ))
   else
     record health systemd_services fail "down:$DOWN" $(( $(date +%s%N | cut -b1-13) - S ))
   fi
@@ -607,12 +609,13 @@ if should_run performance; then
 
   S=$(date +%s%N | cut -b1-13)
   DB_SIZE=$(($(stat -c%s "$OPS_DB" 2>/dev/null || echo 0) / 1048576))
-  if [ "$DB_SIZE" -lt 50 ]; then
+  # [relayaudit 2026-10-13] thresholds were 50/100MB (set when ops.db was young); it is the lifelong DB at ~120MB and the daily FAIL was pure noise. Real constraint = disk (separate check).
+  if [ "$DB_SIZE" -lt 250 ]; then
     record performance ops_db_size pass "${DB_SIZE}MB" $(( $(date +%s%N | cut -b1-13) - S ))
-  elif [ "$DB_SIZE" -lt 100 ]; then
-    record performance ops_db_size warn "${DB_SIZE}MB (>50MB)" $(( $(date +%s%N | cut -b1-13) - S ))
+  elif [ "$DB_SIZE" -lt 1024 ]; then
+    record performance ops_db_size warn "${DB_SIZE}MB (>250MB)" $(( $(date +%s%N | cut -b1-13) - S ))
   else
-    record performance ops_db_size fail "${DB_SIZE}MB (>100MB)" $(( $(date +%s%N | cut -b1-13) - S ))
+    record performance ops_db_size fail "${DB_SIZE}MB (>1GB)" $(( $(date +%s%N | cut -b1-13) - S ))
   fi
 
   S=$(date +%s%N | cut -b1-13)

@@ -1,3 +1,7 @@
+---
+name: trust-refresh
+description: "Refresh trust scores for agents, nodes, or services via trust-refresh.sh so trust metrics reflect current reliability."
+---
 # SKILL.md — Trust Refresh
 
 ## Purpose

@@ -1,3 +1,7 @@
+---
+name: reactor-task
+description: "Handle Telegram-driven task planning and execution via the Reactor (Claude Code). Detects work intent, generates a plan via claude --print, presents it with action buttons, and manages the full execute/stop/undo lifecycle. All communication stays on Telegram."
+---
 # Skill: reactor-task
 Description: Handle Telegram-driven task planning and execution via the Reactor (Claude Code). Detects work intent, generates a plan via claude --print, presents it with action buttons, and manages the full execute/stop/undo lifecycle. All communication stays on Telegram.
 

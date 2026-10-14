@@ -5,6 +5,27 @@ version: 1.0.0
 tags: [meta, skill-creation, templates, best-practices]
 ---
 
+Runs where: container
+
+## Execution location
+Shared files: host `/root/.openclaw/` = container `/home/node/.openclaw/`.
+Read shared files using the container path. Host-only references below preserve
+commands and flags for a host worker; never execute those payloads in the gateway.
+Request the selected step with the container-accessible submission script:
+
+```bash
+bash /home/node/.openclaw/scripts/workshop-submit.sh "Host-only: <selected command, arguments, safeguards, required output>" spec-ops routine "" reactor-dispatch
+```
+
+The fifth argument is `host_op`. Submission returns a task ID, not completion.
+Use `ops_query` with `SELECT id,status,outcome,result,errors FROM tasks WHERE id=<id>`;
+wait for the required output and preserve the original step order and failure gates.
+A `host-only payload:` prefix identifies request text, not a shell command.
+Choose the applicable example, not every alternative in a reference block.
+Use `chart_read`, `chart_search_compact`, and `chart_add` MCP tools for all chart
+operations below instead of the host chart CLI. Use KnownSelf MCP for host-memory
+operations; host service/container operations require a host request.
+
 # Create Skill
 
 ## Purpose
@@ -27,12 +48,16 @@ and hand someone just the SKILL.md, they should be able to execute it.
 
 ## Skill anatomy
 
+Each new skill must include `Runs where: host | container | both`, paired
+paths, and container MCP or host-request replacements for host-only steps.
+Ownership repair examples below are host-only requests through the route above.
+
 Every skill lives in a directory: `workspace-<agent>/skills/<skill-name>/SKILL.md`
 
-Shared skills go in `/root/.openclaw/skills/<skill-name>/SKILL.md` and are
+Shared skills go in `/home/node/.openclaw/skills/<skill-name>/SKILL.md` and are
 symlinked into each agent's workspace that needs them:
 ```bash
-ln -sf /root/.openclaw/skills/<skill-name> /root/.openclaw/workspace-<agent>/skills/<skill-name>
+ln -sf /home/node/.openclaw/skills/<skill-name> /home/node/.openclaw/workspace-<agent>/skills/<skill-name>
 ```
 
 ## Template
@@ -88,8 +113,8 @@ Write this for an agent who has never seen this system before.>
 
 ## Related
 - `/other-skill` — <how it relates>
-- `chart read <chart-id>` — <what context it provides>
-- `chart search "<keywords>"` — <what to search for>
+- `chart_read(id="<chart-id>")` — <what context it provides>
+- `chart_search_compact(query="<keywords>")` — <what to search for>
 
 ## Notes
 <Anything the agent needs to know that doesn't fit above.
@@ -120,7 +145,7 @@ WHAT HASN'T BEEN TRIED: Checking if GH_TOKEN env var is present.
 ### 2. Scripts do the work, skills interpret the results
 
 Skills should NOT contain complex bash logic. If you need more than 5 lines
-of bash, create a script at `/root/.openclaw/scripts/<name>.sh` and have
+of bash, create a script at `/home/node/.openclaw/scripts/<name>.sh` and have
 the skill invoke it. Scripts are:
 - Testable independently (`bash -n` for syntax, direct execution for testing)
 - Zero tokens (no LLM needed to run them)
@@ -133,7 +158,7 @@ DECIDING what to do next.
 
 BAD:
 ```bash
-chown 1000:1000 /root/.openclaw/openclaw.json
+host-only payload: chown 1000:1000 /root/.openclaw/openclaw.json  # container path /home/node/.openclaw/openclaw.json
 ```
 
 GOOD:
@@ -142,15 +167,15 @@ GOOD:
 # owner to root, but the container runs as node (uid 1000). Without this,
 # the gateway gets EACCES on startup and logs a misleading "gateway.mode
 # missing" error (the file can't be read at all, not just missing that key).
-chown 1000:1000 /root/.openclaw/openclaw.json
+host-only payload: chown 1000:1000 /root/.openclaw/openclaw.json  # container path /home/node/.openclaw/openclaw.json
 ```
 
 ### 4. Reference charts for deeper context
 
 Don't duplicate operational knowledge that's already charted. Point to it:
 ```
-chart read <chart-id>    # Specific chart
-chart search "<query>"   # Find related charts
+chart_read(id="<chart-id>")    # Specific chart
+chart_search_compact(query="<query>")   # Find related charts
 ```
 
 Charts survive session boundaries. Skills should reference them so agents
@@ -187,7 +212,7 @@ This helps track which version of a skill is deployed where.
 
 ## Pattern: Wrapping an existing script as a skill
 
-Many capabilities already exist as bash scripts in `/root/.openclaw/scripts/`.
+Many capabilities already exist as bash scripts in `/home/node/.openclaw/scripts/`.
 A skill adds **discoverability** (agents know it exists), **teaching** (agents
 know when and how to use it), and **error interpretation** (agents handle failures).
 
@@ -266,7 +291,7 @@ exec, MCP, or task dispatch.
 | Scope | Path | Who uses it |
 |-------|------|-------------|
 | Agent-specific | `workspace-<agent>/skills/<name>/` | Just that agent |
-| Shared | `/root/.openclaw/skills/<name>/` | Multiple agents via symlinks |
+| Shared | `/home/node/.openclaw/skills/<name>/` | Multiple agents via symlinks |
 | Captain (main) | `workspace/skills/<name>/` | Captain + any agent that inherits |
 
 ## Naming conventions

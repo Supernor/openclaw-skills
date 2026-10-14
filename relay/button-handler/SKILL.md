@@ -1,3 +1,7 @@
+---
+name: button-handler
+description: "Use this skill when Robert reminds you to use the proper OpenClaw API tool call for buttons. This skill ensures that interactive components (buttons/menus) are dispatched via the `message` tool with `channel='telegram'` (for Telegram) or the appropriate `components` block (for Discord)."
+---
 # Skill: button-handler
 Description: Use this skill when Robert reminds you to use the proper OpenClaw API tool call for buttons. This skill ensures that interactive components (buttons/menus) are dispatched via the `message` tool with `channel="telegram"` (for Telegram) or the appropriate `components` block (for Discord).
 

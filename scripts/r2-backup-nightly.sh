@@ -136,7 +136,16 @@ if [ -n "$PAGE_SNAPSHOT" ]; then
 fi
 
 # 3) Retention + light integrity check (5% data read, rotates by day)
-restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly 5 --prune >> "$LOG" 2>&1 || fail "restic forget/prune"
+# === INTENT: hardening 2026-10-13 (#822): stale repo lock (dead PID, same host, >2h) blocked prune 10-09..10-13 unnoticed. Clear dead-owner locks first; escalate if prune fails 2 nights running. ===
+python3 -I -B /root/.openclaw/scripts/r2-lock-hygiene.py >> "$LOG" 2>&1 || log "WARN: lock hygiene could not clear a lock (see line above); prune may fail"
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly 5 --prune >> "$LOG" 2>&1 || { PF=$(python3 -c "
+import sqlite3
+c=sqlite3.connect('$OPS_DB',timeout=6);k='r2-prune-fail-count'
+r=c.execute('select value from kv where key=?',(k,)).fetchone();n=int(r[0])+1 if r and str(r[0]).isdigit() else 1
+c.execute(\"INSERT OR REPLACE INTO kv(key,value,updated_at) VALUES(?,?,strftime('%Y-%m-%dT%H:%M:%SZ','now'))\",(k,str(n)));c.commit();print(n)" 2>/dev/null || echo 1)
+  if [ "${PF:-1}" -ge 2 ]; then telegram_alert "HIGH: r2 prune has failed ${PF} nights running. WHAT: restic forget/prune error (see ${LOG}). WHY: repo grows unbounded; snapshots still save. HOW TO FIX: source /root/.openclaw/.r2.env; restic list locks; restic unlock (stale only); rerun r2-backup-nightly.sh. WHAT WORKED BEFORE: restic unlock cleared dead-PID lock 2217327 on 2026-10-13."; fi
+  fail "restic forget/prune (consecutive failures: ${PF:-1})"; }
+kv_write 'r2-prune-fail-count' 0 || true
 restic check --read-data-subset=5% >> "$LOG" 2>&1 || fail "restic check"
 
 kv_write 'r2-backup-state' "ok $(date -u +%FT%TZ)" \

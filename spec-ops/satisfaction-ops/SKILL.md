@@ -1,3 +1,7 @@
+---
+name: satisfaction-ops
+description: "Ops Officer skill: daily satisfaction-heal run that scores and heals agent satisfaction signals."
+---
 # Satisfaction Ops
 
 **Owner**: Ops Officer (`spec-ops`)
