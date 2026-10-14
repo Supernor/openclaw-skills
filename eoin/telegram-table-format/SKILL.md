@@ -7,6 +7,8 @@ tags: [telegram, formatting, tables, mobile, ux]
 
 # Telegram Table Format
 
+Runs where: both (pure formatting guidance, no commands). Paths: host `/root/.openclaw` = container `/home/node/.openclaw`.
+
 ## Purpose
 Teach an agent how to present tabular or columnar data in Telegram in a way
 that actually reads well on a phone. Telegram does NOT render real tables.
