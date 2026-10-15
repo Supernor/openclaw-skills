@@ -447,10 +447,11 @@ if should_run channels; then
 
   # scribe (warn not fail)
   S=$(date +%s%N | cut -b1-13)
+  # scribe-watcher RETIRED 2026-10-14 (scribe-cleanup); asleep in skills-sleeping/scribe-workshop-v1. Re-enable this probe when the new Scribe poller exists.
   if pgrep -f "scribe-watcher" >/dev/null 2>&1; then
-    record channels scribe_responsive pass "running" $(( $(date +%s%N | cut -b1-13) - S ))
+    record channels scribe_responsive warn "retired scribe-watcher is running again (should be asleep; see skills-sleeping/scribe-workshop-v1)" $(( $(date +%s%N | cut -b1-13) - S ))
   else
-    record channels scribe_responsive warn "not running" $(( $(date +%s%N | cut -b1-13) - S ))
+    record channels scribe_responsive pass "retired (asleep, as intended)" $(( $(date +%s%N | cut -b1-13) - S ))
   fi
 
   # cron_error_rate (NEW: gateway crons in error state)

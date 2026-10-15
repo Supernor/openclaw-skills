@@ -46,8 +46,12 @@ PY
 # telegram_direct pattern: bypasses the gateway. Token fed to curl via stdin config
 # (-K -), never on the command line, so it can't appear in the process listing.
 telegram_alert() {
-  local text token chat
+  local text token chat tagged
   text=$(printf '%s' "$1" | tr '\r\n"' '   ')
+  # Alert id [A-XXXX] + append-only ops.db alert_log row (shared root-owned helper). Helper always exits 0; any failure => original text, alert still goes out.
+  tagged=$(python3 -I /usr/local/lib/knownself-common/alert_log.py tag --source r2-backup-nightly.sh -- "$text" 2>/dev/null) || tagged=""
+  [ -n "$tagged" ] && text=$(printf '%s' "$tagged" | tr '\r\n"' '   ')
+  if [ -n "${KS_ALERT_SINK:-}" ]; then printf '%s\n' "$text" >> "$KS_ALERT_SINK"; return 0; fi   # lab/test sink
   # .env never had plain TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — alert path was dead
   # since birth ("alert skipped: no telegram creds" nightly). Robert's real vars +
   # known-good chat id fallback (2026-10-05).
@@ -138,7 +142,7 @@ fi
 # 3) Retention + light integrity check (5% data read, rotates by day)
 # === INTENT: hardening 2026-10-13 (#822): stale repo lock (dead PID, same host, >2h) blocked prune 10-09..10-13 unnoticed. Clear dead-owner locks first; escalate if prune fails 2 nights running. ===
 python3 -I -B /root/.openclaw/scripts/r2-lock-hygiene.py >> "$LOG" 2>&1 || log "WARN: lock hygiene could not clear a lock (see line above); prune may fail"
-restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly 5 --prune >> "$LOG" 2>&1 || { PF=$(python3 -c "
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly unlimited --prune >> "$LOG" 2>&1 || { PF=$(python3 -c "
 import sqlite3
 c=sqlite3.connect('$OPS_DB',timeout=6);k='r2-prune-fail-count'
 r=c.execute('select value from kv where key=?',(k,)).fetchone();n=int(r[0])+1 if r and str(r[0]).isdigit() else 1

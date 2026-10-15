@@ -174,7 +174,7 @@ for c in comps:
     fi
 
     echo "Done. Review: $MOCKUP_DIR/"
-    echo "Bridge: http://187.77.193.174:8082/#design"
+    echo "Bridge: https://bridge.knownself.ai/#design"
 else
     ERROR=$(echo "$RESULT" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('error','unknown'))" 2>/dev/null || echo "$RESULT")
     echo "Stitch generation failed: $ERROR"

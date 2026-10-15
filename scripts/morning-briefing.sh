@@ -10,7 +10,7 @@ set -euo pipefail
 
 COMPOSE="docker compose -f /root/openclaw/docker-compose.yml"
 LOG="/root/.openclaw/logs/morning-briefing.log"
-BRIDGE_URL="http://187.77.193.174:8083"
+BRIDGE_URL="https://bridge.knownself.ai"
 exec >> "$LOG" 2>&1
 echo "=== Morning Briefing $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 

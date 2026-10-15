@@ -105,7 +105,14 @@ resolve_gateway_downtime_incident() {
 # Direct Telegram send — bypasses gateway entirely (works when gateway is down)
 telegram_direct() {
   local MSG="$1"
-  local TOKEN RESPONSE CURL_RC HTTP_STATUS BODY API_RESULT
+  local TOKEN RESPONSE CURL_RC HTTP_STATUS BODY API_RESULT TAGGED
+  # Alert id [A-XXXX] + append-only ops.db alert_log row (shared root-owned helper). Helper always exits 0; any failure => original text, alert still goes out.
+  TAGGED=$(python3 -I /usr/local/lib/knownself-common/alert_log.py tag --source stability-monitor.sh -- "$MSG" 2>/dev/null) || TAGGED=""
+  [ -n "$TAGGED" ] && MSG="$TAGGED"
+  if [ -n "${KS_ALERT_SINK:-}" ]; then   # lab/test: append instead of sending
+    printf '%s\n' "$MSG" >> "$KS_ALERT_SINK" && return 0
+    return 1
+  fi
   TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2- | tr -d '\r')
   [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2- | tr -d '\r')
   [ -z "$TOKEN" ] && { log "ERROR: telegram_direct token missing WHY: /root/openclaw/.env has no TELEGRAM_BOT_TOKEN_ROBERT or TELEGRAM_BOT_TOKEN value. DO THIS: restore the Robert Telegram bot token in /root/openclaw/.env without printing it. VERIFY: grep -q '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env"; return 1; }

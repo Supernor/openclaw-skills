@@ -11,6 +11,11 @@
 
 set -eo pipefail
 
+# === OPS-MODE GATE (#895) ===
+# Production deploys are HELD while ops mode is UNATTENDED (exit 3 + teaching message from ops-mode); attended runs proceed.
+# Override only with Robert's explicit words: ops-mode allow-deploy --hours 1 --robert-words '<his dated words>'.
+ops-mode gate image-deploy || exit $?
+
 PROJECT_ID="${1:?Usage: deploy-production.sh PROJECT_ID [custom-domain]}"
 CUSTOM_DOMAIN="${2:-}"
 PROJECT_DIR="/root/projects/$PROJECT_ID"
