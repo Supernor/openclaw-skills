@@ -12,6 +12,22 @@
 
 set -euo pipefail
 
+# === INTENT ===
+# Leading-flag guard (2026-10-15 teaching audit): `workshop-submit.sh --help` used to QUEUE "--help" as a real task
+# prompt in ops.db (the executor would then dispatch it). Flags are refused here, before anything is written.
+# === END INTENT ===
+WS_SUFFIX_FILE="/root/.openclaw/config/error-suffix.txt"
+WS_USAGE='Usage: workshop-submit.sh "task" [agent] [urgency] [context] [host_op] [routing_mode] [blocked_by] [timeout_s] [project_id]
+  Positionals only: the first argument is the task text, quoted. Example:
+    workshop-submit.sh "Research competitor pricing" spec-research routine "For Macon pitch"'
+case "${1:-}" in
+  --help|-h) echo "$WS_USAGE"; exit 0 ;;
+  --*) echo "refused[UNKNOWN_ARG] '$1' is not a workshop-submit flag; it would have been QUEUED as the task text. Fix: there are no flags; quote the task text as the first argument." >&2
+       echo "$WS_USAGE" >&2
+       [ -f "$WS_SUFFIX_FILE" ] && sed "s/{CODE}/UNKNOWN_ARG/g" "$WS_SUFFIX_FILE" >&2
+       exit 2 ;;
+esac
+
 TASK="${1:?Usage: workshop-submit.sh \"task\" [agent] [urgency] [context] [host_op] [routing_mode] [blocked_by] [timeout_s]}"
 AGENT="${2:-main}"
 URGENCY="${3:-routine}"
