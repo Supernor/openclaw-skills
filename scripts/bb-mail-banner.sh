@@ -12,7 +12,7 @@ try:
     except Exception:
         pass
     con = sqlite3.connect("file:/root/.openclaw/ops.db?mode=ro", uri=True)
-    n = con.execute("SELECT COUNT(*) FROM bb_messages WHERE id > ?", (cur,)).fetchone()[0]
+    n = con.execute("SELECT COUNT(*) FROM bb_messages WHERE id > ? AND to_actor NOT LIKE 'client:%'", (cur,)).fetchone()[0]
     if n:
         print(f"[📬 backbone: {n} unread message(s) — run bb-read]")
 except Exception:

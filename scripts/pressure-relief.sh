@@ -268,7 +268,7 @@ if [ "$MODE" = "disk" ]; then
     if [ "$DRY_RUN" != "--dry-run" ]; then
       # 2026-10-08: this used to be `docker image prune -a -f`, which deleted the 9.8 staging/fallback images (incident, deferred #312).
       # Now: remove unused images one by one but NEVER openclaw:staging-*, openclaw:local*, *rollback*, *pre-update* (upgrade cutover/rollback artifacts).
-      PROTECT_RE='^openclaw:(staging-|local)|rollback|pre-update'
+      PROTECT_RE='^openclaw:(staging-|local)|^knownself-public:|rollback|pre-update|pre-release'
       USED_IDS=$(docker ps -a --format '{{.Image}}' | xargs -r -n1 docker image inspect --format '{{.Id}}' 2>/dev/null | sort -u)
       docker images --format '{{.ID}} {{.Repository}}:{{.Tag}}' | while read -r iid ref; do
         echo "$ref" | grep -Eq "$PROTECT_RE" && continue
