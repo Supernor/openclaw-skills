@@ -80,8 +80,26 @@ log "=== r2-backup start ==="
 # 1) Consistent snapshot of the live WAL database
 sqlite3 "$OPS_DB" ".backup '$STAGING/ops.db.snapshot'" || fail "sqlite .backup of ops.db"
 
+# 1b) [alert-hygiene 2026-10-22] transcripts.db and scope.db are live WAL SQLite files whose -wal/-shm sidecars vanish mid-scan
+# (restic: "lstat ...-wal: no such file") and raised a nightly "unreadable files" warning. The sidecars are now excluded below, so a
+# consistent .backup copy of each DB goes to staging (staging rides in the main backup via /root/.openclaw/backups). If a copy fails
+# we say so loudly rather than silently losing WAL-resident rows.
+for _db in transcripts scope; do
+  if [ -f "/root/.openclaw/${_db}.db" ]; then
+    sqlite3 "/root/.openclaw/${_db}.db" ".timeout 5000" ".backup '$STAGING/${_db}.db.snapshot'" 2>>"$LOG" \
+      || { log "WARN: sqlite .backup of ${_db}.db failed; its -wal is excluded from restic, so recent rows may be missing from tonight's backup"; \
+           telegram_alert "r2-backup WARNING: could not make a consistent snapshot of ${_db}.db (see ${LOG}); its WAL file is excluded from the backup, so the newest rows may be missing tonight."; }
+  fi
+done
+
 # 2) Encrypted incremental backup
+R2_RUN_LOG_START=$(wc -l < "$LOG" 2>/dev/null || echo 0)
 restic backup /root/.openclaw \
+  --exclude /root/.openclaw/transcripts.db-wal \
+  --exclude /root/.openclaw/transcripts.db-shm \
+  --exclude /root/.openclaw/scope.db-wal \
+  --exclude /root/.openclaw/scope.db-shm \
+  --exclude /root/.openclaw/tmp/plugin-captures \
   --exclude /root/.openclaw/npm \
   --exclude /root/.openclaw/vendor \
   --exclude /root/.openclaw/update \
@@ -100,8 +118,9 @@ rc=$?
 # other crons hold wal/lock files). Treating 3 as fatal inverted the honest
 # signal for weeks: real snapshots reported as FAIL (fixed 2026-10-05).
 if [ "$rc" -eq 3 ]; then
-  log "WARN: restic exit 3 — snapshot created, some files unreadable (see log). Counting as OK-with-warning."
-  telegram_alert "r2-backup WARNING: snapshot created but some files were unreadable (restic exit 3). Backup is usable; check log if this repeats."
+  R2_WARN_TEXT=$(python3 -I -B /root/.openclaw/scripts/r2-restic-warning.py "$LOG" "$R2_RUN_LOG_START" 2>/dev/null) || R2_WARN_TEXT="restic exit 3 (could not name the files; see ${LOG})"
+  log "WARN: ${R2_WARN_TEXT}. Counting as OK-with-warning."
+  telegram_alert "r2-backup WARNING: ${R2_WARN_TEXT}. Snapshot was created and is usable."
 elif [ "$rc" -ne 0 ]; then
   fail "restic backup (exit $rc)"
 fi
@@ -142,7 +161,7 @@ fi
 # 3) Retention + light integrity check (5% data read, rotates by day)
 # === INTENT: hardening 2026-10-13 (#822): stale repo lock (dead PID, same host, >2h) blocked prune 10-09..10-13 unnoticed. Clear dead-owner locks first; escalate if prune fails 2 nights running. ===
 python3 -I -B /root/.openclaw/scripts/r2-lock-hygiene.py >> "$LOG" 2>&1 || log "WARN: lock hygiene could not clear a lock (see line above); prune may fail"
-restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly unlimited --prune >> "$LOG" 2>&1 || { PF=$(python3 -c "
+restic forget --keep-tag offload-keep --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --keep-yearly unlimited --prune >> "$LOG" 2>&1 || { PF=$(python3 -c "
 import sqlite3
 c=sqlite3.connect('$OPS_DB',timeout=6);k='r2-prune-fail-count'
 r=c.execute('select value from kv where key=?',(k,)).fetchone();n=int(r[0])+1 if r and str(r[0]).isdigit() else 1

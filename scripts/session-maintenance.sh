@@ -92,8 +92,12 @@ if [ ${#bloated_keys[@]} -eq 0 ]; then
     echo "(dry-run — skipping cleanup)"
     exit 0
   fi
-  # Still run orphan cleanup
-  oc_cmd sessions cleanup --all-agents --enforce --fix-missing 2>/dev/null | tail -3
+  # Still run orphan cleanup. [alert-hygiene 2026-10-22] under set -e + pipefail a failed
+  # docker exec here (e.g. load-induced timeout) exited 1 AFTER "Nothing to do" and paged as a
+  # failure. Orphan cleanup is best-effort: nothing needed doing, so say what happened and exit 0.
+  if ! oc_cmd sessions cleanup --all-agents --enforce --fix-missing 2>/dev/null | tail -3; then
+    echo "NOTE: optional orphan cleanup did not complete (cleanup command exited non-zero); no sessions needed reset, exiting 0."
+  fi
   exit 0
 fi
 

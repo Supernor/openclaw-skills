@@ -71,7 +71,7 @@ should_alert_failure() {
 }
 
 # Write to ops.db
-sqlite3 "$OPS_DB" "
+sqlite3 -cmd ".timeout 8000" "$OPS_DB" "
 INSERT INTO cron_outcomes (job_name, exit_code, output_tail, duration_ms, result_label)
 VALUES ('$(echo "$JOB_NAME" | tr "'" "_")', $EXIT_CODE, '$(echo "$TAIL" | tr "'" "_" | head -c 500)', $DURATION, '$(echo "$RESULT_LABEL" | tr "'" "_")')
 " 2>/dev/null

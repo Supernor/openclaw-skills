@@ -22,6 +22,15 @@ COMPOSE_DIR="/root/openclaw"
 status="HEALTHY"
 checks=()
 
+# [alert-hygiene 2026-10-22] Probe output (docker/openclaw CLI text, ANSI escapes, quotes) was pasted
+# raw into JSON strings; one control character made jq crash and the failure was paged as "MCP
+# unhealthy" while ws/discord were fine. clean() strips control chars and JSON-breaking chars so the
+# check output is always parseable; jq_safe() reports a parser crash as "checker parse error".
+clean() { printf '%s' "$1" | tr -d '\000-\037\177' | tr '"\\' "' " ; }
+jq_safe() { # usage: jq_safe <jq args...>  (stdin = one check JSON)
+  local out; out=$(jq "$@" 2>/dev/null) && printf '%s' "$out" || printf 'checker parse error (mcp-health-check.sh could not parse its own check JSON; MCP state NOT determined by this failure)'
+}
+
 # Check 1: Gateway port listening
 if ss -tlnp 2>/dev/null | grep -q ":${GATEWAY_PORT} " || netstat -tlnp 2>/dev/null | grep -q ":${GATEWAY_PORT} "; then
   checks+=('{"check":"gateway_port","status":"ok","detail":"Port 18789 listening"}')
@@ -31,11 +40,11 @@ else
 fi
 
 # Check 2: Gateway container running
-gw_state=$(cd "$COMPOSE_DIR" && docker compose ps openclaw-gateway --format json 2>/dev/null | jq -r '.State // .state // "unknown"' 2>/dev/null)
+gw_state=$(cd "$COMPOSE_DIR" && docker compose ps openclaw-gateway --format json 2>/dev/null | jq -r '.State // .state // "unknown"' 2>/dev/null) || gw_state="unknown"
 if [ "$gw_state" = "running" ]; then
-  checks+=("{\"check\":\"container\",\"status\":\"ok\",\"detail\":\"Container state: $gw_state\"}")
+  checks+=("{\"check\":\"container\",\"status\":\"ok\",\"detail\":\"Container state: $(clean "$gw_state")\"}")
 else
-  checks+=("{\"check\":\"container\",\"status\":\"fail\",\"detail\":\"Container state: $gw_state\"}")
+  checks+=("{\"check\":\"container\",\"status\":\"fail\",\"detail\":\"Container state: $(clean "$gw_state")\"}")
   status="DOWN"
 fi
 
@@ -44,7 +53,7 @@ health_out=$(cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway opencl
 if echo "$health_out" | grep -qi "ok\|healthy\|running\|ready"; then
   checks+=('{"check":"gateway_health","status":"ok","detail":"Gateway health: OK"}')
 else
-  checks+=("{\"check\":\"gateway_health\",\"status\":\"warn\",\"detail\":\"Gateway health: ${health_out:0:80}\"}")
+  checks+=("{\"check\":\"gateway_health\",\"status\":\"warn\",\"detail\":\"Gateway health: $(clean "${health_out:0:80}")\"}")
   [ "$status" = "HEALTHY" ] && status="DEGRADED"
 fi
 
@@ -61,7 +70,7 @@ discord_state=$(cd "$COMPOSE_DIR" && docker compose exec -T openclaw-gateway ope
 if echo "$discord_state" | grep -qi "connected\|ok\|ready"; then
   checks+=('{"check":"discord","status":"ok","detail":"Discord connected"}')
 elif [ -n "$discord_state" ]; then
-  checks+=("{\"check\":\"discord\",\"status\":\"warn\",\"detail\":\"Discord: ${discord_state:0:80}\"}")
+  checks+=("{\"check\":\"discord\",\"status\":\"warn\",\"detail\":\"Discord: $(clean "${discord_state:0:80}")\"}")
   [ "$status" = "HEALTHY" ] && status="DEGRADED"
 else
   checks+=('{"check":"discord","status":"warn","detail":"Discord status unknown"}')
@@ -79,9 +88,9 @@ fi
 # Check 7: Scope gate health (Phase 5)
 scope_out=$(scope verify 2>&1 | tail -1)
 if echo "$scope_out" | grep -qi "ok\|pass\|healthy\|entries"; then
-  checks+=("{\"check\":\"scope_gate\",\"status\":\"ok\",\"detail\":\"$scope_out\"}")
+  checks+=("{\"check\":\"scope_gate\",\"status\":\"ok\",\"detail\":\"$(clean "$scope_out")\"}")
 else
-  checks+=("{\"check\":\"scope_gate\",\"status\":\"warn\",\"detail\":\"Scope: ${scope_out:0:80}\"}")
+  checks+=("{\"check\":\"scope_gate\",\"status\":\"warn\",\"detail\":\"Scope: $(clean "${scope_out:0:80}")\"}")
   [ "$status" = "HEALTHY" ] && status="DEGRADED"
 fi
 
@@ -95,8 +104,8 @@ elif [ "$MODE" = "--check" ]; then
   else
     echo "Gateway + MCP: $status"
     for c in "${checks[@]}"; do
-      s=$(echo "$c" | jq -r '.status')
-      [ "$s" != "ok" ] && echo "  $(echo "$c" | jq -r '"\(.check): \(.detail)"')"
+      s=$(echo "$c" | jq_safe -r '.status')
+      [ "$s" != "ok" ] && echo "  $(echo "$c" | jq_safe -r '"\(.check): \(.detail)"')"
     done
     exit 1
   fi
@@ -104,9 +113,9 @@ else
   printf "%-20s %-8s %s\n" "CHECK" "STATUS" "DETAIL"
   printf "%-20s %-8s %s\n" "-----" "------" "------"
   for c in "${checks[@]}"; do
-    check=$(echo "$c" | jq -r '.check')
-    s=$(echo "$c" | jq -r '.status')
-    detail=$(echo "$c" | jq -r '.detail')
+    check=$(echo "$c" | jq_safe -r '.check')
+    s=$(echo "$c" | jq_safe -r '.status')
+    detail=$(echo "$c" | jq_safe -r '.detail')
     printf "%-20s %-8s %s\n" "$check" "$s" "$detail"
   done
   echo ""
@@ -116,9 +125,9 @@ fi
 # Auto-log failures to issue tracker
 if [ "$status" != "HEALTHY" ]; then
   for c in "${checks[@]}"; do
-    s=$(echo "$c" | jq -r '.status')
+    s=$(echo "$c" | jq_safe -r '.status')
     if [ "$s" != "ok" ]; then
-      detail=$(echo "$c" | jq -r '"\(.check): \(.detail)"')
+      detail=$(echo "$c" | jq_safe -r '"\(.check): \(.detail)"')
       issue-log "MCP health: $detail" --source mcp-health-check --severity high 2>/dev/null || true
     fi
   done

@@ -578,24 +578,37 @@ DISK_PCT=$(df / | awk 'NR==2 {print $5}' | tr -d '%') || { log "CHECK FAILED: df
 DISK_FREE_GB=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G') || DISK_FREE_GB="?"
 
 if [ "$DISK_PCT" -gt 75 ]; then
+  # [alert-hygiene 2026-10-22] The old text said "Auto-relief DISK TIER N triggered." unconditionally, even when relief
+  # freed nothing (88% -> 88% every 5 min for days) or was on cooldown. Now: state the condition, RUN relief, then
+  # report the MEASURED before/after via disk-relief-message.py. The trigger sentence keeps its wording so
+  # stability-alert-dedupe.py classes (^critical|high disk, ^disk pressure) still match.
   if [ "$DISK_PCT" -gt 90 ]; then
     DISK_TIER=3
-    ALERTS="${ALERTS}CRITICAL disk: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). Auto-relief DISK TIER 3 triggered. "
+    ALERTS="${ALERTS}CRITICAL disk: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). "
   elif [ "$DISK_PCT" -gt 85 ]; then
     DISK_TIER=2
-    ALERTS="${ALERTS}HIGH disk pressure: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). Auto-relief DISK TIER 2 triggered. "
+    ALERTS="${ALERTS}HIGH disk pressure: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). "
   else
     DISK_TIER=1
-    ALERTS="${ALERTS}Disk pressure: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). Auto-relief DISK TIER 1 triggered. "
+    ALERTS="${ALERTS}Disk pressure: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). "
   fi
-  log "ALERT: Disk ${DISK_PCT}% — triggering disk relief tier $DISK_TIER"
+  log "ALERT: Disk ${DISK_PCT}% — running disk relief tier $DISK_TIER"
 
+  DISK_RELIEF_RAN=0
+  DISK_RELIEF_OUT=""
+  DISK_FREE_B_BEFORE=$(df -B1 --output=avail / | tail -1 | tr -d ' ')
   if [ -x "$RELIEF_SCRIPT" ]; then
     DISK_RELIEF_OUT=$("$RELIEF_SCRIPT" "$DISK_TIER" --disk 2>&1) || true
     log "DISK RELIEF: $DISK_RELIEF_OUT"
-    # [relayaudit 2026-10-13] bracketed so stability-alert-dedupe.py ignores the variable relief text
-    ALERTS="${ALERTS}[relief: ${DISK_RELIEF_OUT//$'\n'/ }] "
+    case "$DISK_RELIEF_OUT" in *"Cooldown active"*) DISK_RELIEF_RAN=0 ;; *"relief:"*) DISK_RELIEF_RAN=1 ;; esac
   fi
+  DISK_PCT_AFTER=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+  DISK_FREE_B_AFTER=$(df -B1 --output=avail / | tail -1 | tr -d ' ')
+  RELIEF_SENTENCE=$(python3 /root/.openclaw/scripts/disk-relief-message.py "$DISK_TIER" "$DISK_PCT" "$DISK_PCT_AFTER" "$DISK_FREE_B_BEFORE" "$DISK_FREE_B_AFTER" "$DISK_RELIEF_RAN" "$DISK_RELIEF_OUT" 2>/dev/null) \
+    || RELIEF_SENTENCE="Auto-relief tier ${DISK_TIER}: result unknown (disk-relief-message.py failed); disk ${DISK_PCT}% used."
+  ALERTS="${ALERTS}${RELIEF_SENTENCE} "
+  # [relayaudit 2026-10-13] bracketed so stability-alert-dedupe.py ignores the variable relief text
+  [ -n "$DISK_RELIEF_OUT" ] && ALERTS="${ALERTS}[relief: ${DISK_RELIEF_OUT//$'\n'/ }] "
 fi
 
 # Check 8: Tap daemon — standalone check (not gated on gateway recovery)
@@ -793,10 +806,19 @@ if echo "$ALERTS" | grep -q "Telegram"; then TELEGRAM_STATE="down"; fi
 if [ "$DISCORD_HEALTH_DEGRADED" = "1" ]; then DISCORD_STATE="degraded"; fi
 if echo "$ALERTS" | grep -q "Rate limit"; then RATE_LIMITED="true"; fi
 
+# [alert-hygiene 2026-10-22] "Consecutive failures: 4477" was a never-resetting count of ONE chronic condition (disk 88%+) presented as
+# fresh failures. It does reset when a check runs clean (ALERTS empty); the text now says exactly what it counts and since when.
+ALERT_SINCE=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('alert_since',''))" 2>/dev/null) || ALERT_SINCE=""
 if [ -n "$ALERTS" ]; then
-  FAILURES=$((FAILURES + 1))
+  if [ -z "$ALERT_SINCE" ]; then
+    FAILURES=1   # old state had no start stamp: the legacy cumulative count (4477+) cannot be dated, so restart the count truthfully
+    ALERT_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  else
+    FAILURES=$((FAILURES + 1))
+  fi
 else
   FAILURES=0
+  ALERT_SINCE=""
 fi
 
 python3 -c "
@@ -808,6 +830,7 @@ state = {
     'rate_limited': True if '$RATE_LIMITED' == 'true' else False,
     'last_check': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
     'consecutive_failures': $FAILURES,
+    'alert_since': '$ALERT_SINCE',
     'restart_count': $RESTART_COUNT,
     'bridge_restart_count': $BRIDGE_RESTART_COUNT
 }
@@ -888,7 +911,7 @@ except: print(999)
 
 ${ALERTS}
 ${MEM_SNAP}${SWAP_SNAP} | ${LOAD_SNAP}${PRESSURE_SNAP}
-Consecutive failures: ${FAILURES}
+Checks with an active alert in a row: ${FAILURES} (every 5 min; alerts active since ${ALERT_SINCE:-unknown} UTC, resets when a check is clean)
 Checked: $(date -u +%H:%M) UTC"
 
   send_alert "$MSG" "general" "$(hostname)"
