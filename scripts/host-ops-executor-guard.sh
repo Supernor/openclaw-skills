@@ -42,12 +42,9 @@ telegram_direct() {
   # Bypasses the gateway entirely (works when the gateway/executor are down).
   local MSG="$1" TOKEN
   if [ -n "$GUARD_DRY_RUN" ]; then log "DRY-RUN alert: $MSG"; return 0; fi
-  TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-  [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-  [ -z "$TOKEN" ] && { log "telegram_direct: no token found"; return 1; }
-  curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-    -d chat_id="${TELEGRAM_TARGET}" -d text="${MSG}" >/dev/null 2>&1 \
-    || log "telegram_direct: ERROR sending alert (curl failed)"
+  # [alert-signal-cleanup 2026-10-28] ledgered send: alert_log.py send = [A-XXXX] id + direct Bot API (no gateway) + alert_delivery row with the HTTP status; rc!=0 means NOT delivered. Restore: .bak-alerts-20261028
+  KS_TG_CHAT="${TELEGRAM_TARGET:-}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source host-ops-executor-guard.sh -- "$MSG" >/dev/null 2>&1 \
+    || log "telegram_direct: ERROR alert NOT delivered (see: SELECT * FROM v_alert_delivery ORDER BY delivery_ts DESC LIMIT 3). DO THIS: python3 /usr/local/lib/knownself-common/alert_log.py send --test --source x -- hello; check egress/token. VERIFY: next alert has an alert_delivery row with ok=1."
 }
 
 set_signal() {

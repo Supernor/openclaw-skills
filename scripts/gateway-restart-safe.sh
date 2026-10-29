@@ -26,12 +26,9 @@ log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1"; }
 # Direct Telegram — bypasses gateway (works when gateway is the thing restarting)
 telegram_direct() {
     local msg="$1"
-    local token="${TELEGRAM_BOT_TOKEN_ROBERT:-}"
-    [ -z "$token" ] && return 1
-    curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-        -d chat_id="${CHAT_ID}" \
-        -d text="${msg}" \
-        -d parse_mode=Markdown >/dev/null 2>&1 || true
+    # [alert-signal-cleanup 2026-10-28] ledgered send: alert_log.py send = [A-XXXX] id + direct Bot API (no gateway) + alert_delivery row with the HTTP status; rc!=0 means NOT delivered. Restore: .bak-alerts-20261028
+    # (parse_mode=Markdown dropped: plain text cannot fail on a stray underscore/asterisk in a restart reason)
+    KS_TG_CHAT="${CHAT_ID:-}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source gateway-restart-safe.sh -- "$msg" >/dev/null 2>&1 || true
 }
 
 # Discord ops-gateway channel — domain-routed notifications

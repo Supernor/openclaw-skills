@@ -20,13 +20,8 @@ telegram_direct() {
     fi
     TARGET=${TARGET:-8561305605}
 
-    TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-    [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-    [ -z "$TOKEN" ] && return 1
-
-    curl -sf -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-        -d chat_id="${TARGET}" \
-        -d text="${MSG}" >/dev/null 2>&1
+    # [alert-signal-cleanup 2026-10-28] ledgered send: alert_log.py send = [A-XXXX] id + direct Bot API (no gateway) + alert_delivery row with the HTTP status; rc!=0 means NOT delivered. Restore: .bak-alerts-20261028
+    KS_TG_CHAT="$TARGET" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source cron-alert.sh -- "$MSG" >/dev/null 2>&1
 }
 
 notify_failure() {

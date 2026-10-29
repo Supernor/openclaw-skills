@@ -59,6 +59,9 @@ telegram_alert() {
   if [ -z "${token:-}" ] || [ -z "${chat:-}" ]; then
     log "alert skipped: no telegram creds in $ENV_FILE"; return 0
   fi
+  # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+  _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="${chat}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source failsafe-restore-drill.sh -- "${text}" 2>/dev/null) || _KS_RC=$?
+  [ -n "$_KS_OUT" ] && return 0
   printf 'url = "https://api.telegram.org/bot%s/sendMessage"\ndata-urlencode = "chat_id=%s"\ndata-urlencode = "text=%s"\n' \
     "$token" "$chat" "$text" | curl -sS --max-time 20 -K - >/dev/null 2>&1 || true
 }

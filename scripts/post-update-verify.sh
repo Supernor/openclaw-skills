@@ -40,7 +40,7 @@ try_fix() {
         openclaw-host-ops)   systemctl restart openclaw-host-ops 2>&1 ;;
         openclaw-bridge-dev) systemctl restart openclaw-bridge-dev 2>&1 ;;
         container_health)    /root/.openclaw/scripts/gateway-restart-safe.sh 8561305605 "auto-fix: container_health" --force 2>&1 ;;
-        auth_health)         /root/.openclaw/scripts/codex-reauth-telegram.sh 8561305605 2>&1 ;;
+        auth_health)         /root/.openclaw/scripts/codex-reauth-telegram.sh --check 2>&1 ;;
         *)                   return 1 ;;  # doctor, config_validate — skip
     esac
     local rc=$?

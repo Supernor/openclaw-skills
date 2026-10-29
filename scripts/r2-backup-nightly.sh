@@ -61,8 +61,10 @@ telegram_alert() {
   chat=$(grep '^TELEGRAM_CHAT_ID=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
   [ -n "${chat:-}" ] || chat="8561305605"
   [ -n "${token:-}" ] && [ -n "${chat:-}" ] || { log "alert skipped: no telegram creds"; return 0; }
-  printf 'url = "https://api.telegram.org/bot%s/sendMessage"\ndata-urlencode = "chat_id=%s"\ndata-urlencode = "text=%s"\n' \
-    "$token" "$chat" "$text" | curl -sS --max-time 20 -K - >/dev/null 2>&1 || true
+  printf 'url = "%s/bot%s/sendMessage"\ndata-urlencode = "chat_id=%s"\ndata-urlencode = "text=%s"\n' \
+    "${KS_TG_API_BASE:-https://api.telegram.org}" "$token" "$chat" "$text" | { code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -K - 2>/dev/null) || code=""; \
+      aid=$(printf '%s' "$text" | sed -n 's/^\[\(A-[A-Z0-9]\{4\}\)\].*/\1/p' | head -1); \
+      [ -n "$aid" ] && python3 -I /usr/local/lib/knownself-common/alert_log.py deliver --alert-id "$aid" --channel telegram --http "${code:-}" --ok "$([ "${code:-}" = 200 ] && echo 1 || echo 0)" --detail "r2-backup alert" >/dev/null 2>&1; true; }   # [alert-signal-cleanup 2026-10-28] delivery ledger row
 }
 
 fail() {
@@ -143,7 +145,14 @@ if [ -f /srv/knownself-public/state/pages/pages.db ]; then
   PAGE_SNAPSHOT="$STAGING/pages-$(date -u +%Y%m%dT%H%M%SZ)"
   python3 -I -B /srv/knownself-public/backbone/pages.py --backup "$PAGE_SNAPSHOT" >> "$LOG" 2>&1 || fail "page SQLite/blob backup bundle"
 fi
+# docs-own-db 2026-10-28 (judge F1): KnownSelf documents live in state/docdb/documents.db. Same rule as pages.db: NEVER raw-copy a live SQLite
+# file into restic. A consistent .backup goes to staging (backed up as its own single-file snapshot below, like ops.db.snapshot), raw file+journal excluded.
+if [ -f /srv/knownself-public/state/docdb/documents.db ]; then
+  sqlite3 /srv/knownself-public/state/docdb/documents.db ".timeout 5000" ".backup '$STAGING/documents.db.snapshot'" 2>>"$LOG" || fail "sqlite .backup of documents.db (lifelong documents store)"
+fi
 restic backup $KS_BACKUP_PATHS \
+  --exclude /srv/knownself-public/state/docdb/documents.db \
+  --exclude /srv/knownself-public/state/docdb/documents.db-journal \
   --exclude /srv/knownself-public/state/pages/pages.db \
   --exclude /srv/knownself-public/state/pages/pages.db-wal \
   --exclude /srv/knownself-public/state/pages/pages.db-shm >> "$LOG" 2>&1
@@ -152,6 +161,10 @@ if [ "$rc" -eq 3 ]; then
   log "WARN: knownself-public restic exit 3 — snapshot created, some files unreadable."
 elif [ "$rc" -ne 0 ]; then
   fail "restic backup of /srv/knownself-public state+config+secrets (exit $rc)"
+fi
+
+if [ -f "$STAGING/documents.db.snapshot" ]; then
+  restic backup "$STAGING/documents.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup of documents.db snapshot"
 fi
 
 if [ -n "$PAGE_SNAPSHOT" ]; then

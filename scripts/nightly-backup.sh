@@ -45,6 +45,15 @@ for DB_REL in "${DATABASES[@]}"; do
     fi
 done
 
+# docs-own-db 2026-10-28 (judge F1): KnownSelf documents store lives outside BASE; same locked .backup, same 7-day retention directory.
+DOCS_DB_SRC="/srv/knownself-public/state/docdb/documents.db"
+if [ -f "$DOCS_DB_SRC" ]; then
+    sqlite3 "$DOCS_DB_SRC" ".timeout 5000" ".backup '${BACKUP_DIR}/documents.db'" 2>/dev/null && {
+        DB_COUNT=$((DB_COUNT + 1))
+        log "  DB: documents.db -> documents.db"
+    } || log "  DB FAILED: documents.db (lifelong documents store)"
+fi
+
 # === INTENT: back up per-agent durable memory DBs (qmd/memory recall) ===
 # === relay/eoin/main/spec-* memory sqlites were NOT in the list (only chartroom was). ===
 # === Added 2026-06-15 per Robert (backup-strategy audit — see issue-wiki-vault-unbacked). ===

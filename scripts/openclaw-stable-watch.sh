@@ -31,6 +31,9 @@ telegram_direct() {
   TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'")
   [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'")
   TARGET=$(telegram-resolve robert 2>/dev/null || echo 8561305605)
+  # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+  _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="${TARGET}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source openclaw-stable-watch.sh -- "${MSG}" 2>/dev/null) || _KS_RC=$?
+  [ -n "$_KS_OUT" ] && return $_KS_RC
   [ -n "$TOKEN" ] && curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
     -d chat_id="$TARGET" -d text="$MSG" >/dev/null 2>&1
 }

@@ -102,6 +102,14 @@ resolve_gateway_downtime_incident() {
   " >/dev/null 2>&1 || log "INCIDENT: failed to resolve gateway downtime incident"
 }
 
+# [alert-signal-cleanup 2026-10-28] delivery ledger: one alert_delivery row per send attempt (HTTP status, ok) so "did Robert get X" is a SQL query. Never fails the caller.
+ledger_delivery() {   # ledger_delivery <alert-text-with-tag> <http-or-empty> <ok 0|1> <detail>
+  local AID
+  AID=$(printf '%s' "$1" | sed -n 's/^\[\(A-[A-Z0-9]\{4\}\)\].*/\1/p' | head -1)
+  [ -n "$AID" ] && python3 -I /usr/local/lib/knownself-common/alert_log.py deliver --alert-id "$AID" --channel telegram --http "$2" --ok "$3" --detail "$4" >/dev/null 2>&1
+  return 0
+}
+
 # Direct Telegram send — bypasses gateway entirely (works when gateway is down)
 telegram_direct() {
   local MSG="$1"
@@ -118,11 +126,12 @@ telegram_direct() {
   [ -z "$TOKEN" ] && { log "ERROR: telegram_direct token missing WHY: /root/openclaw/.env has no TELEGRAM_BOT_TOKEN_ROBERT or TELEGRAM_BOT_TOKEN value. DO THIS: restore the Robert Telegram bot token in /root/openclaw/.env without printing it. VERIFY: grep -q '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env"; return 1; }
   [ -z "${TELEGRAM_TARGET:-}" ] && { log "ERROR: telegram_direct chat target missing WHY: telegram-resolve robert returned empty. DO THIS: fix /usr/local/bin/telegram-resolve or its Robert fallback. VERIFY: telegram-resolve robert >/dev/null"; return 1; }
 
-  RESPONSE=$(curl -sS --max-time 15 -w '\n%{http_code}' -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+  RESPONSE=$(curl -sS --max-time 15 -w '\n%{http_code}' -X POST "${KS_TG_API_BASE:-https://api.telegram.org}/bot${TOKEN}/sendMessage" \
     --data-urlencode "chat_id=${TELEGRAM_TARGET}" \
     --data-urlencode "text=${MSG}" 2>&1)
   CURL_RC=$?
   if [ "$CURL_RC" -ne 0 ]; then
+    ledger_delivery "$MSG" "" 0 "curl rc=${CURL_RC}"
     log "ERROR: telegram_direct curl failed WHY: curl exited rc=${CURL_RC} before Telegram accepted the alert. DO THIS: check outbound network/DNS from this host. VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'."
     return 1
   fi
@@ -138,9 +147,11 @@ if data.get("ok") is True and status.startswith("2"):
 desc = str(data.get("description", "unknown"))[:180]
 print("HTTP %s error_code=%s description=%s" % (status, data.get("error_code", "unknown"), desc))
 sys.exit(1)' "$HTTP_STATUS" 2>/dev/null); then
+    ledger_delivery "$MSG" "$HTTP_STATUS" 1 "accepted"
     log "telegram_direct: Telegram API accepted message"
     return 0
   fi
+  ledger_delivery "$MSG" "$HTTP_STATUS" 0 "${API_RESULT:-unreadable response}"
 
   log "ERROR: telegram_direct API rejected alert WHY: ${API_RESULT:-Telegram returned an unreadable response}. DO THIS: run the dry probe documented in /root/.openclaw/boards/stability-send-fix-20261008.md, then check token/chat resolution without printing secrets. VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'."
   return 1
@@ -536,8 +547,9 @@ LOAD_1M=$(awk '{printf "%d", $1}' /proc/loadavg) || LOAD_1M=0
 LOAD_THRESHOLD=$((NCPU * 3))
 if [ "$LOAD_1M" -gt "$LOAD_THRESHOLD" ]; then
   LOAD_FULL=$(cut -d' ' -f1-3 /proc/loadavg)
-  ALERTS="${ALERTS}CPU saturated: load avg ${LOAD_FULL} on ${NCPU} vCPUs. "
-  log "ALERT: CPU saturated — load ${LOAD_FULL} on ${NCPU} cores"
+  # [alert-signal-cleanup 2026-10-28] CPU spikes are board-only (they were paired with disk texts); relief below still runs. A real sustained fault shows in memory/swap/stuck-task alerts.
+  python3 /usr/local/lib/knownself-common/alert_route.py note cpu "CPU saturated at $(date -u +%H:%M)Z: load avg ${LOAD_FULL} on ${NCPU} vCPUs (single spikes are board-only; memory/swap/stuck-task checks still page)" >/dev/null 2>&1 || log "WARN board note for CPU spike failed (alert_route.py)"
+  log "ALERT(board-only): CPU saturated — load ${LOAD_FULL} on ${NCPU} cores"
   # CPU saturation with memory pressure = enable pressure mode to defer agent work
   if [ ! -f "$PRESSURE_FLAG" ] && [ -x "$RELIEF_SCRIPT" ]; then
     "$RELIEF_SCRIPT" 2 >/dev/null 2>&1 || true
@@ -562,9 +574,13 @@ fi
 
 # Check 5c: Pressure mode recovery — clear flag when resources are healthy again
 if [ -f "$PRESSURE_FLAG" ] && [ "$MEM_AVAIL_MB" -gt 1000 ] && [ "$LOAD_1M" -le "$((NCPU * 2))" ]; then
+  # [alert-signal-cleanup 2026-10-28] 45 "Recovery: Pressure mode cleared" texts in 14 days = the disk-relief flap partner. Only a pressure episode that lasted over an hour is news.
+  PRESSURE_AGE_S=$(( $(date +%s) - $(stat -c %Y "$PRESSURE_FLAG" 2>/dev/null || date +%s) ))
   rm -f "$PRESSURE_FLAG"
-  log "RECOVERED: Pressure mode cleared (${MEM_AVAIL_MB}MB available, load ${LOAD_1M})"
-  RECOVERED="${RECOVERED}Pressure mode cleared — resources healthy. "
+  log "RECOVERED: Pressure mode cleared (${MEM_AVAIL_MB}MB available, load ${LOAD_1M}, flag age ${PRESSURE_AGE_S}s)"
+  if [ "$PRESSURE_AGE_S" -gt 3600 ]; then
+    RECOVERED="${RECOVERED}Pressure mode cleared after $((PRESSURE_AGE_S/60)) min — resources healthy. "
+  fi
 fi
 
 # Check 6: Ollama (embedding service)
@@ -578,21 +594,15 @@ DISK_PCT=$(df / | awk 'NR==2 {print $5}' | tr -d '%') || { log "CHECK FAILED: df
 DISK_FREE_GB=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G') || DISK_FREE_GB="?"
 
 if [ "$DISK_PCT" -gt 75 ]; then
-  # [alert-hygiene 2026-10-22] The old text said "Auto-relief DISK TIER N triggered." unconditionally, even when relief
-  # freed nothing (88% -> 88% every 5 min for days) or was on cooldown. Now: state the condition, RUN relief, then
-  # report the MEASURED before/after via disk-relief-message.py. The trigger sentence keeps its wording so
-  # stability-alert-dedupe.py classes (^critical|high disk, ^disk pressure) still match.
-  if [ "$DISK_PCT" -gt 90 ]; then
-    DISK_TIER=3
-    ALERTS="${ALERTS}CRITICAL disk: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). "
-  elif [ "$DISK_PCT" -gt 85 ]; then
-    DISK_TIER=2
-    ALERTS="${ALERTS}HIGH disk pressure: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). "
-  else
-    DISK_TIER=1
-    ALERTS="${ALERTS}Disk pressure: ${DISK_PCT}% used (${DISK_FREE_GB}GB free). "
+  # [alert-hygiene 2026-10-22] The old text said "Auto-relief DISK TIER N triggered." unconditionally, even when relief was a no-op. Relief text reports the MEASURED before/after.
+  # [alert-signal-cleanup 2026-10-28] Disk no longer rides ALERTS (169 disk-pressure + 45 recovery texts / 14 days for ONE chronic 90% disk, relief frees 0 B).
+  # disk-alert-state.py pages on TRANSITIONS only (cross up / worse tier / recovery / <5GB free) with hysteresis in ops.db kv; the daily status is a board line.
+  # Restore: cp stability-monitor.sh.bak-alerts-20261028 stability-monitor.sh
+  if [ "$DISK_PCT" -gt 90 ]; then DISK_TIER=3
+  elif [ "$DISK_PCT" -gt 85 ]; then DISK_TIER=2
+  else DISK_TIER=1
   fi
-  log "ALERT: Disk ${DISK_PCT}% — running disk relief tier $DISK_TIER"
+  log "ALERT: Disk ${DISK_PCT}% — running disk relief tier $DISK_TIER (board/transition-paged via disk-alert-state.py; not in the 5-minute ALERTS text)"
 
   DISK_RELIEF_RAN=0
   DISK_RELIEF_OUT=""
@@ -606,10 +616,11 @@ if [ "$DISK_PCT" -gt 75 ]; then
   DISK_FREE_B_AFTER=$(df -B1 --output=avail / | tail -1 | tr -d ' ')
   RELIEF_SENTENCE=$(python3 /root/.openclaw/scripts/disk-relief-message.py "$DISK_TIER" "$DISK_PCT" "$DISK_PCT_AFTER" "$DISK_FREE_B_BEFORE" "$DISK_FREE_B_AFTER" "$DISK_RELIEF_RAN" "$DISK_RELIEF_OUT" 2>/dev/null) \
     || RELIEF_SENTENCE="Auto-relief tier ${DISK_TIER}: result unknown (disk-relief-message.py failed); disk ${DISK_PCT}% used."
-  ALERTS="${ALERTS}${RELIEF_SENTENCE} "
-  # [relayaudit 2026-10-13] bracketed so stability-alert-dedupe.py ignores the variable relief text
-  [ -n "$DISK_RELIEF_OUT" ] && ALERTS="${ALERTS}[relief: ${DISK_RELIEF_OUT//$'\n'/ }] "
 fi
+# Disk state machine runs on EVERY check (also <=75%, so a recovery is seen). Own try: failure here must not change this monitor's exit code, but it is LOUD in the log.
+DISK_STATE_OUT=$(python3 /root/.openclaw/scripts/disk-alert-state.py run --pct "$DISK_PCT" --free-gb "${DISK_FREE_GB:-99}" --relief "${RELIEF_SENTENCE:-}" 2>&1) \
+  && log "DISK STATE: $DISK_STATE_OUT" \
+  || log "WARN disk-alert-state.py failed: ${DISK_STATE_OUT}. WHY: ops.db kv unreachable or alert_log lib missing. DO THIS: python3 /root/.openclaw/scripts/disk-alert-state.py run --pct ${DISK_PCT} --free-gb ${DISK_FREE_GB:-99} --test (read the error). VERIFY: log shows 'DISK STATE:'."
 
 # Check 8: Tap daemon — standalone check (not gated on gateway recovery)
 # Use exact process match to avoid false positives from Claude Code bash wrappers
@@ -969,7 +980,8 @@ done
 python3 /root/.openclaw/scripts/cron-incident-steward.py watchdog >> "${LOG:-/root/.openclaw/logs/stability-monitor.log}" 2>&1 || log "WARN cron-incident-steward watchdog failed. DO THIS: python3 /root/.openclaw/scripts/cron-incident-steward.py watchdog (read the error). VERIFY: it exits 0"
 python3 /root/.openclaw/scripts/board-live.py watchdog >> "${LOG:-/root/.openclaw/logs/stability-monitor.log}" 2>&1 || log "WARN board-live watchdog flagged (see above). DO THIS: python3 /root/.openclaw/scripts/board-live.py stats. VERIFY: rendered_gen == dirty_gen"
 
-# Exit codes: 2=monitoring broken, 1=alerts found, 0=all healthy
+# Exit codes: 2=monitoring broken, 0=healthy OR alerts were handled/sent. [alert-signal-cleanup 2026-10-28] "alerts found" used to exit 1, which cron_outcomes recorded as a
+# failure on 2281/2281 runs (~290 fake failures/day poisoning every failure metric). Sending an alert is this monitor SUCCEEDING; nonzero now means its own failure only.
 # RESULT_LABEL tells cron-wrapper what the exit code MEANS (for agent analysis)
 if [ "$CHECK_ERRORS" -gt 0 ]; then
   echo "RESULT_LABEL: monitor_error"
@@ -977,7 +989,7 @@ if [ "$CHECK_ERRORS" -gt 0 ]; then
 fi
 if [ -n "$ALERTS" ]; then
   echo "RESULT_LABEL: alerted"
-  exit 1
+  exit 0
 fi
 echo "RESULT_LABEL: healthy"
 exit 0

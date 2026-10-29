@@ -42,14 +42,21 @@ log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [$POOL] $1" | tee -a "$LOG"; }
 exec 8>"$STATE_DIR/sync.lock"
 flock -w 300 8 || { log "could not get sync lock in 300s - another sync is running; exiting"; exit 1; }
 
-tg_direct() {   # gateway-independent alert (Operational Rule 3) - mirrors stability-monitor.sh telegram_direct()
+tg_direct() {   # gateway-independent alert (Operational Rule 3). 2026-10-28 (#1607): delivery is now VERIFIED + LOGGED
+    # (HTTP status -> $LOG and kv codex_auth_tg_last) via codex_auth_guard.py; it used to be curl >/dev/null || true (silent).
     [ -n "$DRY" ] && { log "DRY-RUN telegram: $1"; return 0; }
-    local TG CHAT
-    TG=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-    [ -z "$TG" ] && TG=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-    CHAT=$(telegram-resolve robert 2>/dev/null)
-    [ -n "$TG" ] && [ -n "$CHAT" ] && curl -s -X POST "https://api.telegram.org/bot${TG}/sendMessage" \
-        -d chat_id="$CHAT" --data-urlencode text="$1" >/dev/null 2>&1 || true
+    local out
+    out=$(python3 -I /root/.openclaw/scripts/codex_auth_guard.py send --source sync-openai-token -- "$1" 2>&1); local rc=$?
+    log "telegram alert rc=$rc: $(printf %s "$out" | tail -1 | cut -c1-200)"
+    return 0
+}
+tg_direct_gated() {   # $1 = kv gate key, rest = text. Re-pages at most once per 24h until cleared on a good sync.
+    local key="$1"; shift
+    [ -n "$DRY" ] && { log "DRY-RUN telegram (gated $key): $1"; return 0; }
+    local out
+    out=$(python3 -I /root/.openclaw/scripts/codex_auth_guard.py send --source sync-openai-token --gate-key "$key" --gate-hours 24 -- "$1" 2>&1); local rc=$?
+    log "telegram alert (gated $key) rc=$rc: $(printf %s "$out" | tail -1 | cut -c1-200)"
+    return 0
 }
 
 # Restart the gateway if a restart is pending (set by a detected token change). Graceful path first.
@@ -94,7 +101,7 @@ except Exception:
 if [ -z "$TOKEN" ]; then
     log "HOST TOKEN EXPIRED/MISSING ($HOST_AUTH) — cannot sync. Needs a device-code re-auth (Robert)."
     echo "RESULT_LABEL: needs_reauth"   # cron-wrapper surfaces this on the Bridge cron-health view
-    tg_direct "OpenAI $POOL TOKEN DEAD: the host Codex token ($HOST_AUTH) is expired/missing, so sync cannot refresh the gateway; agents on this pool fall back to nemotron. This is ONE pool's token, not credits (credits-exhausted hits BOTH pools at once and is reported separately by the Codex lane probe). HISTORY: the 04:20/04:25 syncs and the auth-file watcher only copy a still-valid token; a dead refresh token has never been fixable without a browser. TRIED: nothing automatic can fix this. NOT TRIED: Bridge Reauth button for $POOL, codex login --device-auth with this pool's CODEX_HOME. WORKED BEFORE: device re-auth by Robert, Jul 20 2026 (then sync + gateway restart)."
+    tg_direct_gated "openai_token_dead_page_${POOL}" "OpenAI $POOL TOKEN DEAD: the host Codex token ($HOST_AUTH) is expired/missing, so sync cannot refresh the gateway; agents on this pool fall back to nemotron. This is ONE pool's token, not credits (credits-exhausted hits BOTH pools at once and is reported separately by the Codex lane probe). HISTORY: the 04:20/04:25 syncs and the auth-file watcher only copy a still-valid token; a dead refresh token has never been fixable without a browser. TRIED: nothing automatic can fix this. NOT TRIED: the guarded login for $POOL (the Bridge Reauth button calls the same door). WORKED BEFORE: device re-auth by Robert, Jul 20 2026 (then sync + gateway restart); Oct 28 2026 16:58 EDT. FIX: ! /root/.openclaw/scripts/codex-login-safe $POOL   (guarded: runs the login in a scratch dir and installs only on success, so your current login is never deleted; finish the code on your phone, signed in as the pool's own account). Re-pages at most once per 24h until reauth."
     exit 1
 fi
 
@@ -129,6 +136,7 @@ if [ "${IDV%% *}" = "MISMATCH" ]; then
     exit 1
 fi
 
+[ -z "$DRY" ] && python3 -I /root/.openclaw/scripts/codex_auth_guard.py kv-clear "openai_token_dead_page_${POOL}" >/dev/null 2>&1   # token healthy: next death pages immediately
 log "Host token valid (${HOURS}h left). Pasting $PROFILE for: $AGENTS"
 ok=0; fail=0
 for agent in $AGENTS; do

@@ -98,6 +98,9 @@ send_telegram() {
   local token chat_id
   token=$(grep "^TELEGRAM_BOT_TOKEN_ROBERT=" "$COMPOSE_DIR/.env" 2>/dev/null | cut -d= -f2-) || true
   chat_id="8561305605"
+  # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+  _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="${chat_id}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source system-test.sh -- "$1" 2>/dev/null) || _KS_RC=$?
+  [ -n "$_KS_OUT" ] && return 0
   [ -n "$token" ] && curl -sf -X POST "https://api.telegram.org/bot${token}/sendMessage" -d chat_id="$chat_id" -d text="$1" >/dev/null 2>&1 || true
 }
 

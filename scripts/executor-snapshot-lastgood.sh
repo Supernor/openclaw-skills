@@ -36,6 +36,9 @@ telegram_direct() {
   TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
   [ -z "$TOKEN" ] && TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
   [ -z "$TOKEN" ] && { log "telegram_direct: no token found"; return 1; }
+  # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+  _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="${TELEGRAM_TARGET}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source executor-snapshot-lastgood.sh -- "${MSG}" 2>/dev/null) || _KS_RC=$?
+  [ -n "$_KS_OUT" ] && { [ "$_KS_RC" -eq 0 ] || log "telegram_direct: ERROR sending alert (ledgered, rc=$_KS_RC)"; return 0; }
   curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
     -d chat_id="${TELEGRAM_TARGET}" -d text="${MSG}" >/dev/null 2>&1 \
     || log "telegram_direct: ERROR sending alert (curl failed)"

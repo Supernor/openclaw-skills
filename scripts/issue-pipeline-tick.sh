@@ -30,7 +30,10 @@ if [ -n "$CRITICAL" ]; then
     BOT_TOKEN="${TELEGRAM_BOT_TOKEN_ROBERT:-${TELEGRAM_BOT_TOKEN}}"
     if [ -n "$BOT_TOKEN" ]; then
         MSG="CRITICAL issue logged: $CRITICAL"
-        curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+        _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="${CHAT_ID}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source issue-pipeline-tick.sh -- "${MSG:0:200}" 2>/dev/null) || _KS_RC=$?
+        [ -n "$_KS_OUT" ] && true
+        [ -z "$_KS_OUT" ] && curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" -d "text=${MSG:0:200}" -d "parse_mode=HTML" > /dev/null 2>&1 || true
         log "Critical alert sent to Telegram"
     fi

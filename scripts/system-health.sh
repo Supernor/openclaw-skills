@@ -221,7 +221,10 @@ if [ -f /root/.openclaw/ops.db ]; then
             sqlite3 /root/.openclaw/ops.db "INSERT OR REPLACE INTO kv (key, value) VALUES ('engine_blackout_active', '1')" 2>/dev/null
             # Direct Telegram alert — bypasses gateway (which may also be affected)
             TOKEN=$(grep '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env 2>/dev/null | cut -d= -f2)
-            [ -n "$TOKEN" ] && curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+            _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="8561305605" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source system-health.sh -- "ENGINE BLACKOUT -- All engines failing (Codex pool-a, pool-b, Gemini). No AI work can proceed. Check API keys, rate limits, and network." 2>/dev/null) || _KS_RC=$?
+            [ -n "$_KS_OUT" ] && true
+            [ -z "$_KS_OUT" ] && [ -n "$TOKEN" ] && curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
                 -d chat_id="8561305605" \
                 -d text="*ENGINE BLACKOUT* -- All engines failing (Codex pool-a, pool-b, Gemini). No AI work can proceed. Check API keys, rate limits, and network." \
                 -d parse_mode=Markdown >/dev/null 2>&1

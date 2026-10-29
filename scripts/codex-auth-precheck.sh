@@ -74,7 +74,9 @@ except Exception:
 }
 
 # --- Main logic ---
-REMAINING=$(get_remaining_hours)
+# 2026-10-28 (#1607 side finding): get_remaining_hours returns 1 when auth.json is missing/unparseable; under `set -e` the bare
+# assignment exited the script SILENTLY (cron_outcomes: exit 1, 0.8s, no log line) on Oct 27 + 28, so the parse_fail_refresh branch below never ran.
+REMAINING=$(get_remaining_hours) || REMAINING=""
 
 # 2026-10-07 REAUTH-FIX: pool-b coverage — use the smaller of pool-a/pool-b hours remaining.
 POOLB_HOURS=$(python3 -c "

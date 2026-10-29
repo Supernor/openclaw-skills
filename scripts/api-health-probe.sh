@@ -32,6 +32,9 @@ telegram_direct() {
   [ -z "$TOKEN" ] && return 1
   local CHAT_ID
   CHAT_ID=$(telegram-resolve robert 2>/dev/null || echo "8561305605")
+  # [alert-signal-cleanup 2026-10-28] ledgered send (alert_log id + alert_delivery row with HTTP status); if the CLI prints nothing the shared lib is unavailable -> old direct path below. Restore: .bak-alerts-20261028
+  _KS_RC=0; _KS_OUT=$(KS_TG_CHAT="${CHAT_ID}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source api-health-probe.sh -- "${MSG}" 2>/dev/null) || _KS_RC=$?
+  [ -n "$_KS_OUT" ] && return $_KS_RC
   curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
     -d chat_id="${CHAT_ID}" -d text="${MSG}" >/dev/null 2>&1
 }
