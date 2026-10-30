@@ -342,7 +342,10 @@ if [ "$CONTAINER_STATUS" = "running" ]; then
     # [relayaudit 2026-10-13] WHAT: `openclaw health` could not RUN (docker exec timed out / container OOM-squeezed) - that is NOT proof Telegram is down.
     # 29 pages 10-09..10-10 said "Telegram gateway connection is DOWN" while Robert was chatting through it. Page only after 3 consecutive runs (~15 min), honest wording.
     HPF_FILE="/root/.openclaw/state/health-probe-fail-count"
-    HPF=$(cat "$HPF_FILE" 2>/dev/null || echo 0); HPF=$((HPF + 1)); echo "$HPF" > "$HPF_FILE"
+    # [roothole 2026-10-29] state/ is uid-1000 (container) writable and bash $((..)) EXECUTES text like a[$(cmd)] as root: only 1-6 plain digits may reach arithmetic (scar:stability-monitor-counter-arith-rce-20261029). Write below unchanged (symlink-safe write = tomorrow).
+    HPF=""; [ -f "$HPF_FILE" ] && HPF=$(head -c 16 -- "$HPF_FILE" 2>/dev/null | head -n 1)
+    if ! [[ "$HPF" =~ ^[0-9]{1,6}$ ]]; then [ -n "$HPF" ] && log "WARN health-probe counter $HPF_FILE held non-numeric/oversized text (${#HPF} chars, not shown); treated as 0. DO THIS: ls -la $HPF_FILE; echo 0 > it only if a regular file. VERIFY: it holds digits"; HPF=0; fi
+    HPF=$((10#$HPF + 1)); echo "$HPF" > "$HPF_FILE"
     if [ "$HPF" -ge 3 ]; then
       ALERTS="${ALERTS}Gateway health probe could not run ${HPF} checks in a row (the openclaw health command timed out; container is ${CONTAINER_STATUS}, so this usually means gateway memory/CPU pressure, not a Telegram outage - see 'gateway-memory-watchdog' and logs/stability-monitor.log). "
     fi
@@ -447,7 +450,7 @@ conn.close()
   # Check 4: Crash loop detection — compare against stored baseline, not zero
   # Docker RestartCount is cumulative lifetime. We detect NEW restarts since last check.
   RESTART_COUNT=$(docker inspect --format '{{.RestartCount}}' "$CONTAINER" 2>/dev/null) || { log "CHECK FAILED: docker restart count"; CHECK_ERRORS=$((CHECK_ERRORS+1)); RESTART_COUNT=0; }
-  PREV_RESTARTS=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('restart_count',0))" 2>/dev/null) || PREV_RESTARTS=0
+  PREV_RESTARTS=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(int(json.load(sys.stdin).get('restart_count',0)))" 2>/dev/null) || PREV_RESTARTS=0
   NEW_RESTARTS=$((RESTART_COUNT - PREV_RESTARTS))
   if [ "$NEW_RESTARTS" -gt 3 ]; then
     ALERTS="${ALERTS}Gateway in restart loop (${NEW_RESTARTS} new restarts since last check). "
@@ -687,7 +690,7 @@ for SVC in openclaw-bridge-dev; do
   systemctl is-active --quiet "$SVC" 2>/dev/null || BRIDGE_ACTIVE="no"
   BRIDGE_RESTART_COUNT=$(systemctl show "$SVC" -p NRestarts --value 2>/dev/null || echo 0)
   BRIDGE_RESTART_COUNT=${BRIDGE_RESTART_COUNT:-0}
-  PREV_BRIDGE_RESTARTS=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('bridge_restart_count',0))" 2>/dev/null) || PREV_BRIDGE_RESTARTS=0
+  PREV_BRIDGE_RESTARTS=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(int(json.load(sys.stdin).get('bridge_restart_count',0)))" 2>/dev/null) || PREV_BRIDGE_RESTARTS=0
   BRIDGE_NEW_RESTARTS=$((BRIDGE_RESTART_COUNT - PREV_BRIDGE_RESTARTS))
   [ "$BRIDGE_NEW_RESTARTS" -lt 0 ] && BRIDGE_NEW_RESTARTS=0
 
@@ -790,7 +793,7 @@ fi
 TELEGRAM_STATE="up"
 DISCORD_STATE="up"
 RATE_LIMITED="false"
-FAILURES=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('consecutive_failures',0))" 2>/dev/null) || FAILURES=0
+FAILURES=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(int(json.load(sys.stdin).get('consecutive_failures',0)))" 2>/dev/null) || FAILURES=0
 
 if echo "$ALERTS" | grep -q "Telegram"; then TELEGRAM_STATE="down"; fi
 # Discord: a degraded health line alone is 'degraded' (delivery may still work), not 'down'.
