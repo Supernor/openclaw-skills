@@ -126,34 +126,15 @@ telegram_direct() {
   [ -z "$TOKEN" ] && { log "ERROR: telegram_direct token missing WHY: /root/openclaw/.env has no TELEGRAM_BOT_TOKEN_ROBERT or TELEGRAM_BOT_TOKEN value. DO THIS: restore the Robert Telegram bot token in /root/openclaw/.env without printing it. VERIFY: grep -q '^TELEGRAM_BOT_TOKEN_ROBERT=' /root/openclaw/.env"; return 1; }
   [ -z "${TELEGRAM_TARGET:-}" ] && { log "ERROR: telegram_direct chat target missing WHY: telegram-resolve robert returned empty. DO THIS: fix /usr/local/bin/telegram-resolve or its Robert fallback. VERIFY: telegram-resolve robert >/dev/null"; return 1; }
 
-  RESPONSE=$(curl -sS --max-time 15 -w '\n%{http_code}' -X POST "${KS_TG_API_BASE:-https://api.telegram.org}/bot${TOKEN}/sendMessage" \
-    --data-urlencode "chat_id=${TELEGRAM_TARGET}" \
-    --data-urlencode "text=${MSG}" 2>&1)
+  # [alert-styling 2026-10-29] formatted send (severity headline, bold labels, code spans) through the shared sender; it resends PLAIN on any HTTP 400 and writes the alert_delivery row itself.
+  # Recipient unchanged: KS_TG_CHAT carries the chat telegram_direct always used. KS_TG_API_BASE still overrides the API host for no-send canaries. Old curl path: stability-monitor.sh.bak-alertstyle-20261029.
+  RESPONSE=$(KS_TG_CHAT="${TELEGRAM_TARGET}" python3 -I /usr/local/lib/knownself-common/alert_log.py send --source stability-monitor.sh -- "$MSG" 2>&1)
   CURL_RC=$?
-  if [ "$CURL_RC" -ne 0 ]; then
-    ledger_delivery "$MSG" "" 0 "curl rc=${CURL_RC}"
-    log "ERROR: telegram_direct curl failed WHY: curl exited rc=${CURL_RC} before Telegram accepted the alert. DO THIS: check outbound network/DNS from this host. VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'."
-    return 1
-  fi
-
-  HTTP_STATUS="${RESPONSE##*$'\n'}"
-  BODY="${RESPONSE%$'\n'$HTTP_STATUS}"
-  if API_RESULT=$(printf "%s" "$BODY" | python3 -c 'import json, sys
-status = sys.argv[1]
-data = json.load(sys.stdin)
-if data.get("ok") is True and status.startswith("2"):
-    print("ok")
-    sys.exit(0)
-desc = str(data.get("description", "unknown"))[:180]
-print("HTTP %s error_code=%s description=%s" % (status, data.get("error_code", "unknown"), desc))
-sys.exit(1)' "$HTTP_STATUS" 2>/dev/null); then
-    ledger_delivery "$MSG" "$HTTP_STATUS" 1 "accepted"
+  if [ "$CURL_RC" -eq 0 ]; then
     log "telegram_direct: Telegram API accepted message"
     return 0
   fi
-  ledger_delivery "$MSG" "$HTTP_STATUS" 0 "${API_RESULT:-unreadable response}"
-
-  log "ERROR: telegram_direct API rejected alert WHY: ${API_RESULT:-Telegram returned an unreadable response}. DO THIS: run the dry probe documented in /root/.openclaw/boards/stability-send-fix-20261008.md, then check token/chat resolution without printing secrets. VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'."
+  log "ERROR: telegram_direct send failed WHY: shared sender returned rc=${CURL_RC}: ${RESPONSE:-no output}. DO THIS: check outbound network/DNS, then the delivery row (sqlite3 'file:/root/.openclaw/ops.db?mode=ro' \"select * from alert_delivery order by id desc limit 3\"). VERIFY: tail -n 20 ${LOG} shows 'telegram_direct: Telegram API accepted message'. Not tried: curl fallback (removed 2026-10-29; backup stability-monitor.sh.bak-alertstyle-20261029)."
   return 1
 }
 

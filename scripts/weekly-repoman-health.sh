@@ -91,5 +91,7 @@ TASK_ID=$(sqlite3 "$OPS_DB" "
     );
     SELECT last_insert_rowid();
 " | tail -1)
+# #875: stamp the signed origin (log-only phase: a failure never blocks the dispatch)
+/usr/local/bin/xg-sign-origin "${TASK_ID}" >/dev/null 2>&1 || log "origin signing skipped for task #${TASK_ID}"
 log "Task #${TASK_ID} created for spec-github: ${TASK_DESC}"
 echo "RESULT_LABEL: dispatched"

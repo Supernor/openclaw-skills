@@ -96,6 +96,16 @@ if len(sys.argv[3]) > 12000:
     # No silent caps, ever: the agent will NOT see the tail past 12000 chars.
     sys.stderr.write('WARN workshop-submit: prompt truncated %d->12000 chars — '
                      'shorten the prompt or split the task.\n' % len(sys.argv[3]))
+# Routed build (2026-10-29, Robert: 'Trust builds I route'): WS_ROUTED_FROM=<Reactor parent id> WS_ROUTE_TICKET=<one-time secret> env vars
+# attach the ticket so the exec gate can run this codex-run without a tap, limited to the ticket's files (YOU OWN: list in the prompt).
+import os, re
+_rf, _rt = os.environ.get('WS_ROUTED_FROM', '').strip(), os.environ.get('WS_ROUTE_TICKET', '').strip()
+if _rf or _rt:
+    if sys.argv[1] != 'codex-run' or not _rf.isdigit() or not re.fullmatch(r'[A-Za-z0-9_-]{16,128}', _rt):
+        sys.stderr.write('refused[ROUTED_ARGS] routed build needs host_op codex-run, WS_ROUTED_FROM=<parent task id digits> and WS_ROUTE_TICKET=<secret>. '
+                         'Example: WS_ROUTED_FROM=5378 WS_ROUTE_TICKET=<secret> workshop-submit.sh <quoted prompt with YOU OWN: files> spec-dev routine <empty context> codex-run\n')
+        sys.exit(2)
+    m['routed_from'], m['route_ticket'] = int(_rf), _rt
 print(json.dumps(m))
 " "$HOST_OP" "$AGENT" "$TASK" "$CONTEXT" "$ROUTING_MODE" "$TIMEOUT_S")
 
