@@ -85,22 +85,36 @@ META=$(cat <<METAEOF
 METAEOF
 )
 
-# INSERT + last_insert_rowid in ONE sqlite3 call (separate calls get rowid=0)
-TASK_ID=$(sqlite3 "$OPS_DB" "
-    PRAGMA busy_timeout=5000;
-    INSERT INTO tasks (agent, urgency, status, task, context, meta, created_by)
-    VALUES (
-        'spec-github',
-        'routine',
-        'pending',
-        '${TASK_DESC}',
-        '${CONTEXT}',
-        '$(echo "$META" | tr "'" "_")',
-        'post-backup-dispatch.sh'
-    );
-    SELECT last_insert_rowid();
-" | tail -1)
-# #875: stamp the signed origin (log-only phase: a failure never blocks the dispatch)
-/usr/local/bin/xg-sign-origin "${TASK_ID}" >/dev/null 2>&1 || log "origin signing skipped for task #${TASK_ID}"
+# [#1826b/#1731 2026-11-04 judge] INSERT + origin stamp in ONE write transaction via ops-db.py task-add-signed (a separate sqlite3 INSERT
+# followed by a separate xg-sign-origin process let a watcher edit the row in between and get its content stamped). Exit codes of
+# task-add-signed: 0 inserted+signed | 3 inserted, NOT signed (row kept; log-only phase) | 2 refused, nothing inserted -> fall back to the
+# old two-step path below so the dispatch is never lost (the race is only reopened on that failure path, and it is logged).
+META_SQL=$(echo "$META" | tr "'" "_")
+SIGN_RC=0
+SIGNED_OUT=$(/usr/bin/python3 /root/.openclaw/scripts/ops-db.py task-add-signed spec-github "${TASK_DESC}" \
+    --created-by post-backup-dispatch.sh --urgency routine --status pending \
+    --context "${CONTEXT}" --meta "${META_SQL}" 2>>"$LOG") || SIGN_RC=$?
+if [ "$SIGN_RC" -eq 0 ] || [ "$SIGN_RC" -eq 3 ]; then
+    TASK_ID=$(printf '%s' "$SIGNED_OUT" | /usr/bin/python3 -c 'import json,sys; print(int(json.load(sys.stdin)["id"]))')
+    if [ "$SIGN_RC" -eq 3 ]; then log "origin signing skipped for task #${TASK_ID} (inserted, not signed; run: xg-sign-origin ${TASK_ID})"; fi
+else
+    log "WARN task-add-signed refused (exit ${SIGN_RC}); falling back to plain INSERT + separate xg-sign-origin (race window reopened, see ${LOG})"
+    # INSERT + last_insert_rowid in ONE sqlite3 call (separate calls get rowid=0)
+    TASK_ID=$(sqlite3 "$OPS_DB" "
+        PRAGMA busy_timeout=5000;
+        INSERT INTO tasks (agent, urgency, status, task, context, meta, created_by)
+        VALUES (
+            'spec-github',
+            'routine',
+            'pending',
+            '${TASK_DESC}',
+            '${CONTEXT}',
+            '${META_SQL}',
+            'post-backup-dispatch.sh'
+        );
+        SELECT last_insert_rowid();
+    " | tail -1)
+    /usr/local/bin/xg-sign-origin "${TASK_ID}" >/dev/null 2>&1 || log "origin signing skipped for task #${TASK_ID}"
+fi
 log "Task #${TASK_ID} created for spec-github: ${TASK_DESC}"
 echo "RESULT_LABEL: dispatched"

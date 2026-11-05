@@ -752,6 +752,11 @@ fi
 
 # State-change recovery: gateway was down, now running → fire recovery hook ONCE
 PREV_GATEWAY=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('gateway','unknown'))" 2>/dev/null) || PREV_GATEWAY="unknown"
+# [#1760 2026-11-04] stability-state.json lives in a uid-1000 (container-writable) dir; this value reached sqlite3 SQL text as root (writefile()/edit() = root RCE). Only docker status words pass (scar:stability-monitor-state-to-code-injection-20261104).
+case "$PREV_GATEWAY" in
+  created|restarting|running|removing|paused|exited|dead|missing|unknown) ;;
+  *) [ -n "$PREV_GATEWAY" ] && log "WARN stability-state.json gateway field held unexpected text (${#PREV_GATEWAY} chars, not shown); treated as unknown. DO THIS: ls -la $STATE_FILE (who wrote it?). VERIFY: next run rewrites it with a docker status word"; PREV_GATEWAY="unknown" ;;
+esac
 if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1" ] || { [ "$PREV_GATEWAY" != "running" ] && [ "$PREV_GATEWAY" != "unknown" ]; }; }; then
   if [ -n "$RECOVERY_SOURCE" ]; then
     log "RECOVERY HOOK: Gateway state changed from $RECOVERY_SOURCE -> running"
@@ -768,6 +773,7 @@ if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1"
     AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', '-5 minutes');
     SELECT changes();
   " 2>/dev/null) || RESET_COUNT=0
+  [[ "$RESET_COUNT" =~ ^[0-9]{1,9}$ ]] || RESET_COUNT=0   # [#1760] ops.db is 0666: digits only into SQL text
   [ "$RESET_COUNT" -gt 0 ] && log "RECOVERY: Reset $RESET_COUNT stuck in_progress tasks to pending"
 
   # 2. Restart tap daemon if down
@@ -780,7 +786,7 @@ if [ "$CONTAINER_STATUS" = "running" ] && { [ "$GATEWAY_WAS_DOWN_THIS_RUN" = "1"
   sqlite3 /root/.openclaw/ops.db "
     INSERT INTO kv (key, value, updated_at) VALUES ('gateway_recovery_event', json_object(
       'ts', strftime('%Y-%m-%dT%H:%M:%SZ','now'),
-      'prev_state', '$PREV_GATEWAY',
+      'prev_state', '$(sql_escape "$PREV_GATEWAY")',
       'tasks_reset', $RESET_COUNT
     ), strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at;
@@ -804,6 +810,11 @@ if echo "$ALERTS" | grep -q "Rate limit"; then RATE_LIMITED="true"; fi
 # [alert-hygiene 2026-10-22] "Consecutive failures: 4477" was a never-resetting count of ONE chronic condition (disk 88%+) presented as
 # fresh failures. It does reset when a check runs clean (ALERTS empty); the text now says exactly what it counts and since when.
 ALERT_SINCE=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('alert_since',''))" 2>/dev/null) || ALERT_SINCE=""
+# [#1760 2026-11-04] alert_since is container-writable text; it was pasted into python -c source as root (lab PWN_alertsince). Only YYYY-MM-DDTHH:MM:SSZ passes; anything else = empty (count restarts at 1).
+if [ -n "$ALERT_SINCE" ] && ! [[ "$ALERT_SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+  log "WARN stability-state.json alert_since held a non-timestamp value (${#ALERT_SINCE} chars, not shown); treated as empty. DO THIS: ls -la $STATE_FILE (who wrote it?). VERIFY: next run rewrites it as YYYY-MM-DDTHH:MM:SSZ or empty"
+  ALERT_SINCE=""
+fi
 if [ -n "$ALERTS" ]; then
   if [ -z "$ALERT_SINCE" ]; then
     FAILURES=1   # old state had no start stamp: the legacy cumulative count (4477+) cannot be dated, so restart the count truthfully
@@ -816,25 +827,35 @@ else
   ALERT_SINCE=""
 fi
 
-python3 -c "
-import json
+# [#1760 2026-11-04] Every value reaches python as DATA (environment) under a quoted heredoc: nothing is pasted into python source.
+# Old form pasted alert_since/ALERTS into python -c source (root code injection; ALERTS' own 'gateway-memory-watchdog' quotes also broke this write).
+SM_GATEWAY="$CONTAINER_STATUS" SM_TELEGRAM="$TELEGRAM_STATE" SM_DISCORD="$DISCORD_STATE" SM_RATE_LIMITED="$RATE_LIMITED" \
+SM_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" SM_FAILURES="$FAILURES" SM_ALERT_SINCE="$ALERT_SINCE" SM_RESTARTS="$RESTART_COUNT" \
+SM_BRIDGE_RESTARTS="$BRIDGE_RESTART_COUNT" SM_ALERTS="$ALERTS" SM_STATE_FILE="$STATE_FILE" python3 -I - <<'PY'
+import json, os
+e = os.environ
+def num(k):
+    try:
+        return int(e.get(k, '0'))
+    except ValueError:
+        return 0
 state = {
-    'gateway': '$CONTAINER_STATUS',
-    'telegram': '$TELEGRAM_STATE',
-    'discord': '$DISCORD_STATE',
-    'rate_limited': True if '$RATE_LIMITED' == 'true' else False,
-    'last_check': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
-    'consecutive_failures': $FAILURES,
-    'alert_since': '$ALERT_SINCE',
-    'restart_count': $RESTART_COUNT,
-    'bridge_restart_count': $BRIDGE_RESTART_COUNT
+    'gateway': e['SM_GATEWAY'],
+    'telegram': e['SM_TELEGRAM'],
+    'discord': e['SM_DISCORD'],
+    'rate_limited': e['SM_RATE_LIMITED'] == 'true',
+    'last_check': e['SM_NOW'],
+    'consecutive_failures': num('SM_FAILURES'),
+    'alert_since': e['SM_ALERT_SINCE'],
+    'restart_count': num('SM_RESTARTS'),
+    'bridge_restart_count': num('SM_BRIDGE_RESTARTS')
 }
-if '$ALERTS':
-    state['last_alert'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-    state['last_alert_text'] = '''$ALERTS'''
-with open('$STATE_FILE', 'w') as f:
+if e['SM_ALERTS']:
+    state['last_alert'] = e['SM_NOW']
+    state['last_alert_text'] = e['SM_ALERTS']
+with open(e['SM_STATE_FILE'], 'w') as f:
     json.dump(state, f, indent=2)
-"
+PY
 
 # Helper: send alerts — always sends to Telegram (direct API), Discord only if gateway is up
 send_alert() {
@@ -869,13 +890,16 @@ if [ -n "$ALERTS" ]; then
   PREV_ALERT_TIME=$(echo "$PREV_STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_alert',''))" 2>/dev/null) || PREV_ALERT_TIME=""
   MINUTES_SINCE_ALERT=999
   if [ -n "$PREV_ALERT_TIME" ]; then
-    MINUTES_SINCE_ALERT=$(python3 -c "
+    # [#1760] last_alert is container-writable: passed as argv DATA, never pasted into python source
+    MINUTES_SINCE_ALERT=$(python3 -I - "$PREV_ALERT_TIME" 2>/dev/null <<'PY'
+import sys
 from datetime import datetime, timezone
 try:
-    t=datetime.fromisoformat('$PREV_ALERT_TIME'.replace('Z','+00:00'))
+    t=datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
     print(int((datetime.now(timezone.utc)-t).total_seconds()/60))
 except: print(999)
-" 2>/dev/null) || MINUTES_SINCE_ALERT=999
+PY
+) || MINUTES_SINCE_ALERT=999
   fi
   # Send if: (1) new alert text, (2) first alert, or (3) 30+ min since last send
   # [relayaudit 2026-10-13] OLD rule compared raw text, so volatile numbers (disk %, load avg, MB) made every run "new" => ~35 pages/day for ONE chronic state.

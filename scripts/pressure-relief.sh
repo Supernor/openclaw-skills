@@ -39,7 +39,7 @@ if [ -f "$COOLDOWN_FILE" ] && [ "$DRY_RUN" != "--dry-run" ]; then
   LAST_RUN=$(stat -c %Y "$COOLDOWN_FILE" 2>/dev/null) || LAST_RUN=0
   NOW=$(date +%s)
   ELAPSED=$(( NOW - LAST_RUN ))
-  if [ "$ELAPSED" -lt "$COOLDOWN_SECONDS" ]; then
+  if [ "$ELAPSED" -ge 0 ] && [ "$ELAPSED" -lt "$COOLDOWN_SECONDS" ]; then   # [F 2026-11-04 judge] a future-dated cooldown file (uid-1000 can touch -d) must not suppress relief forever
     log "SKIPPED: Cooldown active (${ELAPSED}s since last run, need ${COOLDOWN_SECONDS}s)"
     echo "Cooldown active — last relief was ${ELAPSED}s ago"
     exit 0
@@ -194,6 +194,36 @@ fi
 
 # ─── DISK RELIEF (triggered with --disk flag) ───
 if [ "$MODE" = "disk" ]; then
+  # [#1796 2026-11-04] Disk relief ran every 5 min (~288/day) at a chronic 82-91% disk, freed ~0 B, and kept vacuuming journald
+  # (service evidence lost, e.g. Caddy logs for the Nov 1 outage). Now it runs only on a WORSE tier than its last run, or after 6 h.
+  # State is in a root-only dir, never under uid-1000 /root/.openclaw. Rollback: cp -p pressure-relief.sh.bak-1796-20261104 pressure-relief.sh
+  DISK_STATE_DIR="${RELIEF_STATE_DIR:-/var/lib/openclaw-relief}"
+  DISK_STATE="$DISK_STATE_DIR/disk-last"
+  DISK_RERUN_SECONDS=21600
+  if [ "$DRY_RUN" != "--dry-run" ]; then
+    [[ "$TIER" =~ ^[0-9]$ ]] || { log "REFUSED: disk tier '${TIER:0:8}' is not 0-9"; echo "Disk relief refused: tier must be a digit 1-3 (usage: pressure-relief.sh <tier> --disk)"; exit 2; }
+    CUR_PCT=$(df / | awk 'NR==2 {print $5}' | tr -d '%'); [[ "$CUR_PCT" =~ ^[0-9]{1,3}$ ]] || CUR_PCT=100
+    LAST_TIER=0; LAST_TS=0; LAST_PCT=$CUR_PCT
+    if [ -f "$DISK_STATE" ] && [ ! -L "$DISK_STATE" ]; then
+      read -r _lt _ts _lp _rest < <(head -c 64 "$DISK_STATE")
+      [[ "${_lt:-}" =~ ^[0-9]$ ]] && [[ "${_ts:-}" =~ ^[0-9]{1,12}$ ]] && { LAST_TIER=$_lt; LAST_TS=$_ts; }
+      [[ "${_lp:-}" =~ ^[0-9]{1,3}$ ]] && LAST_PCT=$((10#$_lp))
+    fi
+    NOW=$(date +%s)
+    ELAPSED=$(( NOW - 10#$LAST_TS ))
+    # [#1796b 2026-11-04 judge] rerun inside a tier when: usage >= 95%, usage grew >= 3 points since the last run, the tier got worse, 6 h passed, or the clock went backwards (negative elapsed)
+    if [ "$TIER" -le "$LAST_TIER" ] && [ "$ELAPSED" -ge 0 ] && [ "$ELAPSED" -lt "$DISK_RERUN_SECONDS" ] \
+       && [ "$CUR_PCT" -lt 95 ] && [ "$CUR_PCT" -lt $(( LAST_PCT + 3 )) ]; then
+      log "SKIPPED: disk relief tier $TIER already ran ${ELAPSED}s ago at tier $LAST_TIER/${LAST_PCT}% (now ${CUR_PCT}%; reruns on a worse tier, +3 points, >=95%, or after ${DISK_RERUN_SECONDS}s)"
+      echo "Cooldown active — disk relief tier $LAST_TIER ran ${ELAPSED}s ago; reruns on a worse tier, +3 points, >=95% or after 6 h"
+      exit 0
+    fi
+    install -d -m 0700 -o root -g root "$DISK_STATE_DIR" 2>/dev/null
+    if [ -d "$DISK_STATE_DIR" ] && [ ! -L "$DISK_STATE_DIR" ]; then
+      printf '%s %s %s\n' "$TIER" "$NOW" "$CUR_PCT" > "$DISK_STATE.tmp" && mv -f "$DISK_STATE.tmp" "$DISK_STATE" \
+        || log "WARN could not record disk relief state in $DISK_STATE_DIR (relief will rerun next cycle). Check: ls -ld $DISK_STATE_DIR"
+    fi
+  fi
   DISK_BEFORE=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
   DISK_FREE_GB=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G')
   log "=== Disk relief TIER $TIER started === ${DISK_BEFORE}% used, ${DISK_FREE_GB}GB free"

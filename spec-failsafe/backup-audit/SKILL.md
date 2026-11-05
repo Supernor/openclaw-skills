@@ -83,3 +83,9 @@ Worked examples:
 - Never print credentials or the restic password (the receipts already omit them; keep it that way).
 - Never mark PASS to be reassuring. UNKNOWN is a valid, honest, useful answer.
 - Never invent a number the receipts did not give you.
+
+## Compressed local copies (2026-11-04)
+Older local DB copies under `backups/` are zstd-compressed by `scripts/backup-compress.py` (`<name>.zst`, original mtime kept, so the
+`local-backups-newest-artifact-age-days` receipt is unchanged and `ops-*.db*` still matches). A missing `.db` with a `.zst` beside it is NOT a lost backup.
+Restore (host only, hash-checked): `python3 /root/.openclaw/scripts/backup-compress.py restore <file>.zst --to <new path>`; details in `backups/README-RESTORE.txt`.
+A compress failure is logged in `logs/nightly-backup.log` as `LOUD: backup-compress.py FAILED` and alerted via cron-alert (job `backup-compress`); the backup itself is unaffected.

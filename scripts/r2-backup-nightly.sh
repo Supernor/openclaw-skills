@@ -138,6 +138,13 @@ restic backup "$STAGING/ops.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup o
 # run before the OAuth deploy neither warns nor fails. A restore from a snapshot older than grant_created strands ChatGPT (re-login): see oauth-staging/deploy/DEPLOY.md "post-grant manual backup".
 KS_BACKUP_PATHS="/srv/knownself-public/state /srv/knownself-public/config /srv/knownself-public/secrets"
 [ -d /srv/knownself-public/oauth ] && KS_BACKUP_PATHS="$KS_BACKUP_PATHS /srv/knownself-public/oauth"
+# KnownSelf server SOURCE (2026-11-04, Reactor): app image, backbone, tools, releases were in NO backup (git-inventory lane found it; no git repo either).
+# Small (~25 MB without node_modules, which package-lock.json regenerates). Each dir added only when it exists.
+for _ks_src in image backbone bin scribe ops releases deploy oauth-staging; do
+  [ -d "/srv/knownself-public/$_ks_src" ] && KS_BACKUP_PATHS="$KS_BACKUP_PATHS /srv/knownself-public/$_ks_src"
+done
+# #875 origin-signing key (Robert 2026-11-04: "Encrypted offsite backup"). One copy only, 32 bytes, root 0600; losing it after enforcement would refuse every trusted task. restic encrypts the repo.
+[ -f /var/lib/exec-gate/origin.key ] && KS_BACKUP_PATHS="$KS_BACKUP_PATHS /var/lib/exec-gate/origin.key"
 # Page metadata uses WAL. Preserve it with the host's locked SQLite backup API,
 # alongside every blob/version. Do not raw-copy a live page database into restic.
 PAGE_SNAPSHOT=""
@@ -155,7 +162,8 @@ restic backup $KS_BACKUP_PATHS \
   --exclude /srv/knownself-public/state/docdb/documents.db-journal \
   --exclude /srv/knownself-public/state/pages/pages.db \
   --exclude /srv/knownself-public/state/pages/pages.db-wal \
-  --exclude /srv/knownself-public/state/pages/pages.db-shm >> "$LOG" 2>&1
+  --exclude /srv/knownself-public/state/pages/pages.db-shm \
+  --exclude "/srv/knownself-public/*/node_modules" --exclude "/srv/knownself-public/*/*/node_modules" --exclude "__pycache__" >> "$LOG" 2>&1
 rc=$?
 if [ "$rc" -eq 3 ]; then
   log "WARN: knownself-public restic exit 3 — snapshot created, some files unreadable."

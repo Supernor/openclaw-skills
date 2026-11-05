@@ -17,6 +17,11 @@ Usage:
   ops-db.py task update <id> <status> [--result '{"..."}']
   ops-db.py task list [--status X] [--agent X]
   ops-db.py task get <id>
+  ops-db.py task-add-signed <agent> <summary> [--created-by reactor] [--urgency X] [--status X] [--context "..."]
+                            [--files '["..."]'] [--meta '{"host_op":"..."}'] [--outcome "..."] [--blocked-by "..."]
+        HOST-ROOT ONLY (#875/#1826): INSERT a task with a TRUSTED created_by and stamp its signed origin (meta.origin_sig)
+        right after the INSERT. Exit 0 = inserted + signed; 3 = inserted but NOT signed (row kept; run `xg-sign-origin <id>`);
+        2 = refused before any insert (not host root / created_by not trusted / bad input).
 
   ops-db.py notify <type> <provider> <message> [--reason X]
   ops-db.py notify list [--undelivered|--all] [--limit N]
@@ -457,6 +462,88 @@ def cmd_task(args):
         error_exit("Usage: ops-db.py task <create|update|list|get>")
 
 
+# ── SIGNED TASK INSERT (#1826: sign-on-insert so Reactor never has to remember xg-sign-origin) ──
+# === INTENT ===
+# Host-root door for Reactor's own trusted task inserts: INSERT first (the row can never be lost), then stamp meta.origin_sig via exec_gate.sign_origin.
+# Refuses (exit 2, nothing inserted) unless root on the host and created_by is trusted. Signing failure = exit 3 + teaching error naming `xg-sign-origin <id>`; the row stays.
+# XG_DB / XG_LIB / XG_ORIGIN_STATE env overrides exist for lab tests only (same as xg-sign-origin); the live key is never read or printed here.
+# === END ===
+XG_LIB = os.environ.get("XG_LIB") or "/usr/local/lib/exec-gate"
+TASK_ADD_SIGNED_SYNTAX = ('ops-db.py task-add-signed <agent> <summary> [--created-by reactor] [--urgency routine|blocking|critical] '
+                          '[--status pending|blocked|cancelled|...] [--context "..."] [--files \'["/abs/path"]\'] [--meta \'{"host_op":"codex-run","prompt":"..."}\'] '
+                          '[--outcome "..."] [--blocked-by ID]')
+
+
+def _refuse_signed(msg):
+    print(f"ops-db task-add-signed: {msg}\nSyntax: {TASK_ADD_SIGNED_SYNTAX}\n"
+          "Exit codes: 0 inserted+signed | 2 refused, nothing inserted | 3 inserted but NOT signed (row kept; run `xg-sign-origin <id>`).", file=sys.stderr)
+    sys.exit(2)
+
+
+def cmd_task_add_signed(args):
+    if len(args) < 2:
+        _refuse_signed("agent and summary are required.")
+    agent, summary = args[0], args[1]
+    opts = parse_args_after(args, 2)
+    created_by = opts.get("created-by", "reactor")
+    lab_db = os.environ.get("XG_DB")
+    if not lab_db and (os.path.realpath(BASE) != "/root/.openclaw" or os.path.exists("/.dockerenv") or os.geteuid() != 0):   # host has /home/node/.openclaw -> /root/.openclaw symlink, so compare the REAL path
+        _refuse_signed(f"must run as root on the VPS host (BASE={BASE} -> {os.path.realpath(BASE)}, euid={os.geteuid()}); the signing key is root-only and a container/agent run cannot hold a trusted origin. "
+                       "Agents use `task create` (untrusted, goes through the approval card).")
+    import importlib.util
+    try:
+        sp = importlib.util.spec_from_file_location("exec_gate", XG_LIB + "/exec_gate.py")
+        G = importlib.util.module_from_spec(sp)
+        sys.modules["exec_gate"] = G
+        sp.loader.exec_module(G)
+    except Exception as e:  # noqa: BLE001
+        _refuse_signed(f"cannot load exec_gate from {XG_LIB}: {type(e).__name__}: {e}. Nothing inserted. Fix the library path before inserting a trusted task.")
+    if not G._directly_trusted(created_by):
+        _refuse_signed(f"created_by={created_by!r} is not a trusted origin (trusted: 'reactor', 'claude-code', or a 'reactor: ...' prefix; see TRUSTED_EXACT/TRUSTED_PREFIX in {XG_LIB}/exec_gate.py). "
+                       "An untrusted created_by needs no signature: use `task create`.")
+    urgency = opts.get("urgency", "routine")
+    status = opts.get("status", "pending")
+    meta_raw = opts.get("meta", "")
+    try:
+        meta = json.loads(meta_raw) if meta_raw else {}
+        if not isinstance(meta, dict):
+            raise ValueError("meta must be a JSON object")
+    except ValueError as e:
+        _refuse_signed(f"--meta is not a JSON object: {e}")
+    meta.pop("origin_sig", None)
+    blocked_by = opts.get("blocked-by") or None
+    db_path = lab_db or DB_PATH
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            "INSERT INTO tasks (agent, urgency, status, task, context, files, outcome, meta, blocked_by, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (agent, urgency, status, summary, opts.get("context", ""), opts.get("files", ""), opts.get("outcome", ""),
+             json.dumps(meta) if meta else None, blocked_by, created_by))
+        task_id = cur.lastrowid
+    except sqlite3.Error as e:
+        conn.rollback()
+        _refuse_signed(f"INSERT failed, nothing inserted: {type(e).__name__}: {e}")
+    signed = False
+    try:
+        signed = G.sign_origin(conn, task_id, commit=False)   # [#1826b judge 2026-11-04] same write transaction as the INSERT: no other writer can see or edit the row before it is stamped
+    except Exception as e:  # noqa: BLE001
+        print(f"ops-db task-add-signed: task #{task_id} INSERTED but NOT SIGNED: {type(e).__name__}: {e}. "
+              f"Tried: sign_origin in-process with key {G.ORIGIN_KEY_FILE}. Not tried: `xg-sign-origin {task_id}` by hand (same call), `xg-sign-origin --init-key` if the key is missing (root, once). "
+              f"The row is kept as-is; in log-only phase it is just logged, under enforcement it would be gated to a card until signed. Fix: run `xg-sign-origin {task_id}`.", file=sys.stderr)
+    try:
+        conn.commit()        # the row is kept either way (signed or not); INSERT+stamp land atomically
+    except sqlite3.Error as e:
+        conn.rollback()
+        _refuse_signed(f"COMMIT failed, nothing inserted (INSERT and stamp roll back together): {type(e).__name__}: {e}. Tried: one write transaction, busy_timeout 30 s. Not tried: retry once the DB lock clears (check disk space with `df /`, and `fuser` on ops.db).")
+    row = conn.execute("SELECT id, agent, status, created_by, task FROM tasks WHERE id=?", (task_id,)).fetchone()
+    verdict = G.verify_origin(G._task_row(conn, task_id)) if signed else "unsigned"
+    conn.close()
+    print_json({"id": row["id"], "agent": row["agent"], "status": row["status"], "created_by": row["created_by"], "origin": verdict, "task": row["task"][:120]})
+    sys.exit(0 if signed and verdict == "valid" else 3)
+
+
 # ── NOTIFICATIONS ──
 
 def cmd_notify(args):
@@ -653,7 +740,7 @@ def cmd_init():
 
 def main():
     if len(sys.argv) < 2:
-        error_exit("Usage: ops-db.py <health|incident|task|notify|config|kv|query|stats|init>")
+        error_exit("Usage: ops-db.py <health|incident|task|task-add-signed|notify|config|kv|query|stats|init>")
 
     auto_init()
 
@@ -667,6 +754,7 @@ def main():
         "health": lambda: cmd_health(rest),
         "incident": lambda: cmd_incident(rest),
         "task": lambda: cmd_task(rest),
+        "task-add-signed": lambda: cmd_task_add_signed(rest),
         "notify": lambda: cmd_notify(rest),
         "config": lambda: cmd_config(rest),
         "kv": lambda: cmd_kv(rest),
@@ -679,7 +767,7 @@ def main():
     if handler:
         handler()
     else:
-        error_exit(f"Unknown command: {cmd}. Usage: ops-db.py <health|incident|task|notify|config|kv|query|stats|init>")
+        error_exit(f"Unknown command: {cmd}. Usage: ops-db.py <health|incident|task|task-add-signed|notify|config|kv|query|stats|init>")
 
 
 if __name__ == "__main__":

@@ -139,4 +139,24 @@ find "$BACKUP_ROOT" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | 
 done
 
 log "Nightly backup finished. Retention: ${RETENTION_DAYS} days."
+# === INTENT: after a GOOD backup, shrink older DB copies ~6x (backup-compress.py: hash -> zstd -> test -> round-trip hash -> only then remove). ===
+# === Robert 2026-11-04 "Compress + make it automatic". A compression problem must NEVER fail or hide the backup itself: rc is captured, ===
+# === failure = loud log line + cron-alert.sh --notify-only (this script's own alert path); exit status stays the backup's. Off-switch: state/backup-compress.disabled ===
+if [ -s "${BACKUP_DIR}/ops.db" ] && [ ! -e "${BASE}/state/backup-compress.disabled" ]; then
+    set +e
+    COMPRESS_OUT=$(python3 "${BASE}/scripts/backup-compress.py" 2>&1)
+    COMPRESS_RC=$?
+    set -e
+    printf '%s\n' "$COMPRESS_OUT" | tail -n 40 | while IFS= read -r CL; do log "  compress: ${CL}"; done
+    if [ "$COMPRESS_RC" -ne 0 ]; then
+        log "LOUD: backup-compress.py FAILED rc=${COMPRESS_RC} - the BACKUP ITSELF succeeded (see above); originals of failed files were KEPT. Fix: run 'python3 ${BASE}/scripts/backup-compress.py --dry-run' then read refused[...] lines in this log. Disable: touch ${BASE}/state/backup-compress.disabled"
+        "${BASE}/scripts/cron-alert.sh" --notify-only backup-compress "$COMPRESS_RC" "$(printf '%s\n' "$COMPRESS_OUT" | tail -n 5)" >> "$LOG" 2>&1 || true
+    else
+        REC=$(python3 "${BASE}/scripts/cron-alert-state.py" ok backup-compress 2>/dev/null | head -1) || true
+        [ "${REC%% *}" = "RECOVERED" ] && { "${BASE}/scripts/cron-alert.sh" --recovered backup-compress "${REC#RECOVERED }" >> "$LOG" 2>&1 || true; }
+    fi
+else
+    log "backup-compress skipped (today's ops.db copy missing/empty, or state/backup-compress.disabled present)"
+fi
+
 echo "{\"status\":\"ok\",\"date\":\"${TODAY}\",\"dbs\":${DB_COUNT},\"configs\":${CFG_COUNT},\"size\":\"${BACKUP_SIZE}\"}"
