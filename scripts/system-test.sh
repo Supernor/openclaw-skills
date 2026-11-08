@@ -661,6 +661,9 @@ fi
 
 # Exit code
 if [ "$FAIL" -gt 0 ]; then exit 1
-elif [ "$WARN" -gt 0 ]; then exit 2
+elif [ "$WARN" -gt 0 ]; then
+  # [repair-loop 1876] warnings-only: cron-wrapper treats any nonzero exit as a failed job (50 false incidents since 10-10, e.g. ops_db_size warn). Manual runs keep exit 2; cron runs exit 0 (WARN lines + test_results rows still record it).
+  [ "$TRIGGER" = "cron" ] && { echo "RESULT_LABEL: ok"; exit 0; }
+  exit 2
 else exit 0
 fi

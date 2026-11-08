@@ -69,7 +69,7 @@ ${SHORT_OUTPUT}"; then
     fi
 
     # Send Discord notification via gateway
-    docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway \
+    timeout -k 5 "${CRON_ALERT_DISCORD_TIMEOUT:-20}" docker compose -f /root/openclaw/docker-compose.yml exec -T openclaw-gateway \
         openclaw message send --channel discord --account robert --target ops-alerts \
         -m "Cron FAILED: ${JOB_NAME} (exit ${EXIT_CODE}) at ${TS}" 2>/dev/null | grep -v "level=warning" >/dev/null || true
     DISCORD_STATUS="attempted"

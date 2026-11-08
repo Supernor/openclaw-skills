@@ -157,6 +157,12 @@ fi
 if [ -f /srv/knownself-public/state/docdb/documents.db ]; then
   sqlite3 /srv/knownself-public/state/docdb/documents.db ".timeout 5000" ".backup '$STAGING/documents.db.snapshot'" 2>>"$LOG" || fail "sqlite .backup of documents.db (lifelong documents store)"
 fi
+# #1863 (2026-11-07, Reactor): exec-gate run ledger /var/lib/exec-gate/origin-runs.db (root 0600, append-only since the #1857 install). It holds the
+# one-use approval + routed-ticket records; if it is lost, a re-init can no longer tell spent taps from fresh ones. Same rule: .backup snapshot, never raw copy.
+if [ -f /var/lib/exec-gate/origin-runs.db ]; then
+  sqlite3 /var/lib/exec-gate/origin-runs.db ".timeout 5000" ".backup '$STAGING/origin-runs.db.snapshot'" 2>>"$LOG" && chmod 600 "$STAGING/origin-runs.db.snapshot" \
+    || fail "sqlite .backup of origin-runs.db (exec-gate run ledger)"
+fi
 restic backup $KS_BACKUP_PATHS \
   --exclude /srv/knownself-public/state/docdb/documents.db \
   --exclude /srv/knownself-public/state/docdb/documents.db-journal \
@@ -173,6 +179,10 @@ fi
 
 if [ -f "$STAGING/documents.db.snapshot" ]; then
   restic backup "$STAGING/documents.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup of documents.db snapshot"
+fi
+
+if [ -f "$STAGING/origin-runs.db.snapshot" ]; then     # [#1863 2026-11-07]
+  restic backup "$STAGING/origin-runs.db.snapshot" >> "$LOG" 2>&1 || fail "restic backup of origin-runs.db snapshot (exec-gate run ledger)"
 fi
 
 if [ -n "$PAGE_SNAPSHOT" ]; then
