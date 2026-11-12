@@ -189,6 +189,24 @@ if [ -n "$PAGE_SNAPSHOT" ]; then
   restic backup "$PAGE_SNAPSHOT" >> "$LOG" 2>&1 || fail "restic backup of verified page bundle"
 fi
 
+# === INTENT: WORKTREE FIX 4 (deferred #2029, 2026-11-11, Reactor tmux lane t3-handover-collab): Claude Code memory of EVERY project
+# === folder (T3 project chats and worktree chats each get their own /root/.claude/projects/<slug>/memory; only -root's went to GitHub
+# === via vps-backup.sh, nothing went to R2) + the PC<->VPS bare git repos in /root/git (no other backup). Small (~3 MB). ===
+CC_BACKUP_PATHS=()
+for _m in /root/.claude/projects/*/memory; do
+  if [ -d "$_m" ]; then CC_BACKUP_PATHS+=("$_m"); fi
+done
+if [ -d /root/git ]; then CC_BACKUP_PATHS+=(/root/git); fi
+if ((${#CC_BACKUP_PATHS[@]})); then
+  rc=0
+  restic backup --tag claude-memory-and-git "${CC_BACKUP_PATHS[@]}" >> "$LOG" 2>&1 || rc=$?
+  if [ "$rc" -eq 3 ]; then
+    log "WARN: claude-memory/git restic exit 3 — snapshot created, some files unreadable."
+  elif [ "$rc" -ne 0 ]; then
+    fail "restic backup of Claude Code project memory + /root/git (exit $rc)"
+  fi
+fi
+
 # 3) Retention + light integrity check (5% data read, rotates by day)
 # === INTENT: hardening 2026-10-13 (#822): stale repo lock (dead PID, same host, >2h) blocked prune 10-09..10-13 unnoticed. Clear dead-owner locks first; escalate if prune fails 2 nights running. ===
 python3 -I -B /root/.openclaw/scripts/r2-lock-hygiene.py >> "$LOG" 2>&1 || log "WARN: lock hygiene could not clear a lock (see line above); prune may fail"
