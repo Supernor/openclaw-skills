@@ -1,134 +1,29 @@
 ---
 name: workshop
-description: Route ideas to The Workshop (Scribe on Telegram). Creates Intake topics for structured intent capture.
-version: 1.1.0
+description: Queue deeper feature shaping with Projects through the existing Workshop.
+version: 1.2.0
 author: relay
-tags: [workshop, idea, intake, scribe, projects]
+tags: [workshop, idea, intake, projects]
 ---
 
-# workshop -- Route to The Workshop
+# Workshop intake from Relay
+Runs where: gateway container, Relay. This skill routes deeper feature shaping to `spec-projects` (Projects, legacy Workshop Scribe). Agent `scribe` is the separate Scribe discussion desk, not the Workshop execution target.
 
-## Purpose
+Read AGENTS.md and TOOLS.md boundaries first. Keep the original idea verbatim as quoted user data, its source message/thread, and the why. If bare `/workshop`, ask for the idea; do not invent it. Quick intent clarification follows TOOLS.md and does not require creating a new feature.
 
-Route ideas and new work requests to Scribe (spec-projects) for structured intent capture through The Workshop on Telegram. Scribe creates a topic in the Ideas group and runs the full pipeline: Intake -> Shape -> Gauntlet -> Green Light -> Build -> Proof.
+Before dispatch, check duplicates with `ops_query`:
+`SELECT id,status,task FROM tasks ORDER BY id DESC LIMIT 10`.
+For a new intake, use exactly one tracked dispatch through the installed script:
+`bash ~/.openclaw/scripts/workshop-submit.sh "Workshop Intake: <idea, source correlation, why, requested shaping and finish test>" spec-projects routine "<source message/thread; existing task or ask id>" reactor-dispatch`
 
-## When to Trigger
+This call creates the task and queues its execution. Do not separately insert a task, write SQLite, call sessions_spawn, or start a second intake. Keep task text under the script's 12,000-character prompt cap; use an authorized document handle for a long spec. Shell-quote literal text safely; never interpolate untrusted text into executable commands.
 
-- User types `/workshop`
-- User says "workshop this" or "let's workshop it"
-- User describes an idea and you detect ideation language ("I want to be able to...", "what if we...", "new idea:", "we should build...")
-- Another agent routes an idea to you for Workshop intake
+Read the returned task id. Say “Intake queued as task #N”; a topic, delivery, promotion or build is unverified until its own artifact/receipt exists. If dispatch fails, retain the idea and correlation, report the teaching error with KS_ERROR_SUFFIX, and use Relay's failure ladder. Do not silently fall back to a different local intake or claim routing succeeded.
 
-## Flow
+Projects shapes Intake -> Shape -> Gauntlet -> Green Light -> Build -> Proof through the existing Workshop. Human direction is not approval for a particular action. Keep Robert's approval cards, Corinne's silo and her own consent. Never infer approval from silence.
 
-### Step 1: Capture the raw idea
+For an existing multi-dispatch project, ask Captain to verify its project row and return the id. Relay never creates/updates project or registry rows. Only after a verified id is returned, pass it as position 9:
+`bash ~/.openclaw/scripts/workshop-submit.sh "<child task>" <agent> routine "<context>" <host_op> direct "<blocked_by or empty>" "<timeout_s or empty>" <project_id>`
+Positions match workshop-submit.sh: task, agent, urgency, context, host_op, routing_mode, blocked_by, timeout_s, project_id. Dependency and host-op approval rules still apply.
 
-If the user provided idea text with the command (e.g. `/workshop I want real-time agent dashboards`):
-- Use that text directly. Skip to Step 2.
-
-If bare `/workshop` with no text:
-- Ask: "What's the idea? Drop it in one message — rough is fine."
-- Wait for their response.
-
-### Step 2: Create task record (MANDATORY)
-
-Before routing anywhere, create a task in ops.db so the work is visible in Bridge.
-
-Use `exec` or Python to insert directly into SQLite:
-
-```python
-import sqlite3
-db = sqlite3.connect(os.path.expanduser("~/.openclaw/ops.db"))
-db.execute(
-    "INSERT INTO tasks (agent, task, context, urgency, status, created_at) VALUES (?, ?, ?, ?, 'pending', datetime('now'))",
-    ("spec-projects", "Workshop Intake: {idea title or first 80 chars}", "New idea from {user}: {full idea text}", "routine")
-)
-db.commit()
-db.close()
-```
-
-This is NOT optional. No task record = invisible work = broken system.
-
-### Step 3: Route to Scribe
-
-Dispatch to Scribe for Workshop intake using `sessions_spawn`:
-
-```json
-{
-  "tool": "sessions_spawn",
-  "arguments": {
-    "agentId": "spec-projects",
-    "mode": "run",
-    "label": "workshop:intake",
-    "message": "New idea from {user name}: {full idea text}\n\nCreate a topic in the Ideas group and begin Workshop intake. Start with Intake stage."
-  }
-}
-```
-
-### Step 4: Confirm to user
-
-Tell the user:
-- "Idea sent to Workshop — Scribe is setting up a topic in the Ideas group."
-- Include the task ID from Step 2 so they can track it in Bridge.
-- If on Discord, include Bridge link: http://187.77.193.174:8082
-
-### Fallback: If Scribe is unreachable
-
-If sessions_spawn to spec-projects fails or times out:
-1. Tell the user: "Scribe is unavailable. Running local intake instead."
-2. Fall back to the `/idea` skill (which runs intake-engine.py locally).
-3. The ops.db task from Step 2 still exists, so the work is visible in Bridge regardless.
-
-### Fallback: If ops.db insert fails
-
-If the SQLite insert fails:
-1. Try CLI: `exec workshop-submit.sh "{idea text}" "spec-projects" "routine"`
-2. If that also fails, tell the user and log the failure.
-3. Still attempt Scribe routing — the idea shouldn't be lost just because ops.db is down.
-
-## Track as a project (longer, multi-dispatch work)
-
-Most ideas stay as Intake (above). When an idea becomes an ACTIVE effort that will span MANY dispatches —
-a build Robert wants to watch as one thing — register a row in the `projects` table so it shows as a single
-card in the Bridge Workshop "Projects" group (rolled-up child counts, next action, latest step) instead of
-flooding the queue with loose tasks.
-
-1. Create the project row (in-container python against ops.db):
-
-```python
-import sqlite3, os
-db = sqlite3.connect(os.path.expanduser("~/.openclaw/ops.db"))
-pid = db.execute(
-    "INSERT INTO projects (title, status, agent, next_action, aps_id) VALUES (?, 'active', ?, ?, ?)",
-    ("<short project title>", "<owning agent, e.g. spec-dev>", "<the immediate next step>", "<intake task id / APS id, optional>")
-).lastrowid
-db.commit(); db.close()
-print("project", pid)
-```
-
-2. Tag every child dispatch with that project id (9th arg of workshop-submit.sh):
-
-   `bash ~/.openclaw/scripts/workshop-submit.sh "<task>" <agent> <urgency> "<context>" <host_op> direct "" "" <pid>`
-
-3. Keep the card current as work moves — update `status` (active/paused/blocked/done), `next_action`, `progress_note`:
-
-   `UPDATE projects SET status='done', next_action='', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=<pid>`
-
-4. Point Robert at the card: "Tracking '<name>' on Bridge Workshop — I'll post milestones, not every step."
-
-The `projects` row is the LIVE tracker; the Scribe/spec-projects intake (Steps 1-4 above) stays the
-"why/strategy" backing — link them via `aps_id`. One flow, not competing paths.
-
-## Rules
-
-- ALWAYS create the ops.db task record BEFORE routing to Scribe
-- NEVER improvise a text-only pseudo-workshop — use the real system
-- NEVER skip the task record — invisible work is the #1 system failure
-- If both Scribe AND ops.db insert fail, tell the user clearly: "Workshop is down. Your idea: {text}. I'll retry when systems recover."
-
-## Per-User Voice
-
-- **Robert**: "Intake logged. Scribe's on it — topic incoming in Ideas."
-- **Corinne**: "Got it! Scribe is setting up a space for this in the Ideas group."
-
-Intent: Responsive [I04], Reliable [I05]. Purpose: P04 System Visibility.
+Current role/approval boundaries: `mem_get_node {"actor":"relay","node_id":"policy:mcp-roles-liaison-front-desk-captain-admin-20261111"}` and `policy:mcp-roles-liaison-front-desk-captain-admin-20261111`. Missing visibility means UNKNOWN, never a bypass. This documentation corrects the old direct-SQL plus spawn flow; it does not install any new routing or prove end-to-end delivery.
